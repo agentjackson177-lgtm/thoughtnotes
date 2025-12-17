@@ -847,6 +847,17 @@ function App() {
                         setSelectedIds(new Set([node.id]));
                         setSelected(node.id);
                       }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          // 结束输入并选中当前输入框
+                          const textarea = e.target as HTMLTextAreaElement;
+                          textarea.blur();
+                          setSelectedIds(new Set([node.id]));
+                          setSelected(node.id);
+                        }
+                      }}
                       rows={1}
                       style={{
                         width: '100%',
