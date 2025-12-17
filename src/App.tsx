@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { FolderMeta, MapMeta, MindNode } from './types';
+import { DocumentMeta, FolderMeta, MapMeta, MindNode } from './types';
 import { createInitialState, exportData, useMindMap } from './hooks/useMindMap';
 import { calculateNodeDimensions } from './utils/textMeasure';
 
@@ -151,6 +151,9 @@ function App() {
     default: createInitialState(),
   });
   const [currentMapId, setCurrentMapId] = useState('default');
+  const [documents, setDocuments] = useState<DocumentMeta[]>([]);
+  const [currentDocumentId, setCurrentDocumentId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'mindmap' | 'document'>('mindmap');
   const isPanning = useRef(false);
   const lastPoint = useRef<{ x: number; y: number } | null>(null);
   const draggingNodeId = useRef<string | null>(null);
@@ -478,6 +481,7 @@ function App() {
     setMaps((prev) => [...prev, { id, name, folderId, updatedAt: Date.now() }]);
     setMapStates((prev) => ({ ...prev, [id]: nextState }));
     setCurrentMapId(id);
+    setViewMode('mindmap');
     importData(nextState);
   };
 
@@ -485,8 +489,47 @@ function App() {
     const next = mapStates[id];
     if (!next) return;
     setCurrentMapId(id);
+    setViewMode('mindmap');
+    setCurrentDocumentId(null);
     importData(next);
   };
+
+  const handleCreateDocument = (folderId: string | null) => {
+    const name = window.prompt('新建文档名称');
+    if (!name) return;
+    const id = crypto.randomUUID();
+    const newDoc: DocumentMeta = {
+      id,
+      name,
+      folderId,
+      updatedAt: Date.now(),
+      content: '',
+    };
+    setDocuments((prev) => [...prev, newDoc]);
+    setCurrentDocumentId(id);
+    setViewMode('document');
+  };
+
+  const handleSwitchDocument = (id: string) => {
+    setCurrentDocumentId(id);
+    setViewMode('document');
+  };
+
+  const handleUpdateDocumentContent = (id: string, content: string) => {
+    setDocuments((prev) =>
+      prev.map((doc) =>
+        doc.id === id
+          ? {
+              ...doc,
+              content,
+              updatedAt: Date.now(),
+            }
+          : doc,
+      ),
+    );
+  };
+
+  const currentDocument = documents.find((d) => d.id === currentDocumentId);
 
   const positions = layout;
   const allNodes = Object.values(nodes);
@@ -591,25 +634,45 @@ function App() {
               <button className="icon-btn" onClick={() => handleCreateMap(null)} title="新建导图">
                 🗺️+
               </button>
+              <button className="icon-btn" onClick={() => handleCreateDocument(null)} title="新建文档">
+                📄+
+              </button>
             </div>
           </div>
           <div className="folder-section">
             <div className="folder-row">
               <span>根目录</span>
-              <button className="link-btn" onClick={() => handleCreateMap(null)}>
-                新建导图
-              </button>
+              <div>
+                <button className="link-btn" onClick={() => handleCreateMap(null)}>
+                  新建导图
+                </button>
+                <button className="link-btn" onClick={() => handleCreateDocument(null)}>
+                  新建文档
+                </button>
+              </div>
             </div>
             {maps
               .filter((m) => m.folderId === null)
               .map((m) => (
                 <div
                   key={m.id}
-                  className={`map-row ${currentMapId === m.id ? 'active' : ''}`}
+                  className={`map-row ${currentMapId === m.id && viewMode === 'mindmap' ? 'active' : ''}`}
                   onClick={() => handleSwitchMap(m.id)}
                 >
-                  <div className="map-name">{m.name}</div>
+                  <div className="map-name">🗺️ {m.name}</div>
                   <div className="map-meta">{new Date(m.updatedAt).toLocaleDateString()}</div>
+                </div>
+              ))}
+            {documents
+              .filter((d) => d.folderId === null)
+              .map((d) => (
+                <div
+                  key={d.id}
+                  className={`map-row ${currentDocumentId === d.id && viewMode === 'document' ? 'active' : ''}`}
+                  onClick={() => handleSwitchDocument(d.id)}
+                >
+                  <div className="map-name">📄 {d.name}</div>
+                  <div className="map-meta">{new Date(d.updatedAt).toLocaleDateString()}</div>
                 </div>
               ))}
           </div>
@@ -621,6 +684,9 @@ function App() {
                   <button className="link-btn" onClick={() => handleCreateMap(folder.id)}>
                     新建导图
                   </button>
+                  <button className="link-btn" onClick={() => handleCreateDocument(folder.id)}>
+                    新建文档
+                  </button>
                 </div>
               </div>
               {maps
@@ -628,17 +694,30 @@ function App() {
                 .map((m) => (
                   <div
                     key={m.id}
-                    className={`map-row ${currentMapId === m.id ? 'active' : ''}`}
+                    className={`map-row ${currentMapId === m.id && viewMode === 'mindmap' ? 'active' : ''}`}
                     onClick={() => handleSwitchMap(m.id)}
                   >
-                    <div className="map-name">{m.name}</div>
+                    <div className="map-name">🗺️ {m.name}</div>
                     <div className="map-meta">{new Date(m.updatedAt).toLocaleDateString()}</div>
+                  </div>
+                ))}
+              {documents
+                .filter((d) => d.folderId === folder.id)
+                .map((d) => (
+                  <div
+                    key={d.id}
+                    className={`map-row ${currentDocumentId === d.id && viewMode === 'document' ? 'active' : ''}`}
+                    onClick={() => handleSwitchDocument(d.id)}
+                  >
+                    <div className="map-name">📄 {d.name}</div>
+                    <div className="map-meta">{new Date(d.updatedAt).toLocaleDateString()}</div>
                   </div>
                 ))}
             </div>
           ))}
         </aside>
 
+        {viewMode === 'mindmap' ? (
         <div
           ref={canvasShellRef}
           className="canvas-shell"
@@ -896,6 +975,30 @@ function App() {
             <MiniMap positions={positions} nodes={nodes} />
           </div>
         </div>
+        ) : (
+        <div className="document-editor">
+          {currentDocument ? (
+            <>
+              <div className="document-header">
+                <h2 className="document-title">{currentDocument.name}</h2>
+                <div className="document-meta">
+                  最后更新: {new Date(currentDocument.updatedAt).toLocaleString()}
+                </div>
+              </div>
+              <textarea
+                className="document-content"
+                value={currentDocument.content}
+                onChange={(e) => handleUpdateDocumentContent(currentDocument.id, e.target.value)}
+                placeholder="开始输入文档内容..."
+              />
+            </>
+          ) : (
+            <div className="document-empty">
+              <p>请从左侧选择一个文档，或创建一个新文档</p>
+            </div>
+          )}
+        </div>
+        )}
       </div>
 
       {contextMenu && (

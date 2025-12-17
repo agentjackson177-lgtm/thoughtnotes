@@ -32,3 +32,11 @@ export type FolderMeta = {
   parentId: string | null;
 };
 
+export type DocumentMeta = {
+  id: string;
+  name: string;
+  folderId: string | null;
+  updatedAt: number;
+  content: string;
+};
+
