@@ -161,6 +161,7 @@ function App() {
   const selectionStart = useRef<{ x: number; y: number } | null>(null);
   const canvasShellRef = useRef<HTMLDivElement>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const nodeClickCountRef = useRef<Record<string, { count: number; timer: NodeJS.Timeout | null }>>({});
 
   const {
     nodes,
@@ -554,7 +555,7 @@ function App() {
         {selectedId && (
           <div className="priority-group">
             <div className="priority-label">优先级</div>
-            {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
+            {[1, 2, 3, 4].map((n) => (
               <button
                 key={n}
                 className={`pill ${nodes[selectedId]?.priority === n ? 'active' : ''}`}
@@ -769,6 +770,57 @@ function App() {
                       className="node-text"
                       value={node.title}
                       onChange={(e) => updateTitle(node.id, e.target.value)}
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        const textarea = e.target as HTMLTextAreaElement;
+                        const nodeId = node.id;
+                        
+                        // 如果已经有焦点且内容已全选，允许正常输入（不处理）
+                        if (document.activeElement === textarea && textarea.selectionStart !== textarea.selectionEnd) {
+                          return;
+                        }
+                        
+                        // 如果已经有焦点但内容未全选，可能是第三次点击，允许正常输入
+                        if (document.activeElement === textarea) {
+                          // 不清空选择，允许正常输入
+                          return;
+                        }
+                        
+                        // 阻止默认的 focus 行为
+                        e.preventDefault();
+                        
+                        // 更新点击计数
+                        if (!nodeClickCountRef.current[nodeId]) {
+                          nodeClickCountRef.current[nodeId] = { count: 0, timer: null };
+                        }
+                        
+                        const clickData = nodeClickCountRef.current[nodeId];
+                        clickData.count++;
+                        
+                        // 清除之前的定时器
+                        if (clickData.timer) {
+                          clearTimeout(clickData.timer);
+                        }
+                        
+                        if (clickData.count === 1) {
+                          // 第一次点击：选中节点，不进入输入状态
+                          setSelectedIds(new Set([nodeId]));
+                          setSelected(nodeId);
+                          
+                          // 设置定时器，如果300ms内没有第二次点击，重置计数
+                          clickData.timer = setTimeout(() => {
+                            clickData.count = 0;
+                          }, 300);
+                        } else if (clickData.count === 2) {
+                          // 第二次点击（双击）：全选内容并进入输入状态
+                          clickData.count = 0;
+                          textarea.focus();
+                          // 使用 setTimeout 确保 focus 后再全选
+                          setTimeout(() => {
+                            textarea.select();
+                          }, 0);
+                        }
+                      }}
                       onClick={(e) => {
                         e.stopPropagation();
                         if (e.metaKey || e.ctrlKey) {
@@ -788,21 +840,12 @@ function App() {
                             }
                             return next;
                           });
-                        } else {
-                          // 普通点击：单选
-                          setSelectedIds(new Set([node.id]));
-                          setSelected(node.id);
                         }
                       }}
                       onFocus={(e) => {
                         e.stopPropagation();
                         setSelectedIds(new Set([node.id]));
                         setSelected(node.id);
-                      }}
-                      onDoubleClick={(e) => {
-                        e.stopPropagation();
-                        const target = e.target as HTMLTextAreaElement;
-                        target.select();
                       }}
                       rows={1}
                       style={{
@@ -811,14 +854,9 @@ function App() {
                         textAlign: 'center',
                         lineHeight: `${nodeHeight}px`,
                         paddingLeft: node.priority && node.priority >= 1 && node.priority <= 4 ? '28px' : '20px',
-                        paddingRight: node.priority && node.priority >= 5 ? '28px' : '20px',
+                        paddingRight: '20px',
                       }}
                     />
-                    {node.priority && node.priority >= 5 && (
-                      <span className={`priority-badge priority-${node.priority}`}>
-                        {node.priority}
-                      </span>
-                    )}
                   </div>
                   {hasChildren && (
                     <button
