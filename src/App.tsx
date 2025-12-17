@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { DocumentMeta, FolderMeta, MapMeta, MindNode } from './types';
+import { DocumentMeta, FolderMeta, MapMeta, MindNode, StoredUser, User, UserData } from './types';
 import { createInitialState, exportData, useMindMap } from './hooks/useMindMap';
 import { calculateNodeDimensions } from './utils/textMeasure';
 
@@ -141,8 +141,95 @@ const computeLayout = (nodes: Record<string, MindNode>, rootId: string) => {
   return positions;
 };
 
+// 账号管理工具函数
+const STORAGE_KEY_USERS = 'mindmap_users';
+const STORAGE_KEY_CURRENT_USER = 'mindmap_current_user'; // legacy
+const STORAGE_KEY_CURRENT_USER_ID = 'mindmap_current_user_id';
+
+const textToHex = (buffer: ArrayBuffer): string =>
+  Array.from(new Uint8Array(buffer))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+
+const hashPassword = async (password: string, salt: string): Promise<string> => {
+  const enc = new TextEncoder();
+  const data = enc.encode(`${salt}:${password}`);
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return textToHex(digest);
+};
+
+const isValidUsername = (username: string): boolean => /^[a-zA-Z0-9_-]{3,20}$/.test(username);
+const isValidEmail = (email: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+const isValidPassword = (password: string): boolean => password.length >= 6;
+
+const saveUsers = (users: StoredUser[]) => {
+  localStorage.setItem(STORAGE_KEY_USERS, JSON.stringify(users));
+};
+
+const getUsers = (): StoredUser[] => {
+  const data = localStorage.getItem(STORAGE_KEY_USERS);
+  return data ? JSON.parse(data) : [];
+};
+
+const saveUserData = (userId: string, data: UserData) => {
+  localStorage.setItem(`mindmap_user_data_${userId}`, JSON.stringify(data));
+};
+
+const getUserData = (userId: string): UserData | null => {
+  const data = localStorage.getItem(`mindmap_user_data_${userId}`);
+  return data ? JSON.parse(data) : null;
+};
+
+const toPublicUser = (u: StoredUser): User => ({
+  id: u.id,
+  username: u.username,
+  email: u.email,
+  createdAt: u.createdAt,
+});
+
+const getCurrentUser = (): User | null => {
+  // Prefer current user id (new format)
+  const id = localStorage.getItem(STORAGE_KEY_CURRENT_USER_ID);
+  if (id) {
+    const u = getUsers().find((x) => x.id === id);
+    return u ? toPublicUser(u) : null;
+  }
+
+  // Legacy format: full user object stored
+  const legacy = localStorage.getItem(STORAGE_KEY_CURRENT_USER);
+  if (!legacy) return null;
+  try {
+    const u = JSON.parse(legacy) as User;
+    if (u?.id) {
+      localStorage.setItem(STORAGE_KEY_CURRENT_USER_ID, u.id);
+      localStorage.removeItem(STORAGE_KEY_CURRENT_USER);
+      return u;
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+};
+
+const setCurrentUser = (user: User | null) => {
+  if (user) {
+    localStorage.setItem(STORAGE_KEY_CURRENT_USER_ID, user.id);
+    localStorage.removeItem(STORAGE_KEY_CURRENT_USER);
+  } else {
+    localStorage.removeItem(STORAGE_KEY_CURRENT_USER_ID);
+    localStorage.removeItem(STORAGE_KEY_CURRENT_USER);
+  }
+};
+
 function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [currentUser, setCurrentUserState] = useState<User | null>(() => getCurrentUser());
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [authUsername, setAuthUsername] = useState('');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [isUserDataLoaded, setIsUserDataLoaded] = useState(false);
   const [folders, setFolders] = useState<FolderMeta[]>([]);
   const [maps, setMaps] = useState<MapMeta[]>([
     { id: 'default', name: '默认导图', folderId: null, updatedAt: Date.now() },
@@ -450,6 +537,73 @@ function App() {
     event.target.value = '';
   };
 
+  // 加载用户数据（防止刷新时被“自动保存”覆盖：未完成加载前不允许保存）
+  useEffect(() => {
+    setIsUserDataLoaded(false);
+    if (currentUser) {
+      const userData = getUserData(currentUser.id);
+      if (userData) {
+        setFolders(userData.folders || []);
+        setMaps(userData.maps || []);
+        setMapStates(userData.mapStates || {});
+        setDocuments(userData.documents || []);
+        
+        // 如果有默认导图，加载它
+        if (userData.maps && userData.maps.length > 0) {
+          const defaultMap = userData.maps[0];
+          setCurrentMapId(defaultMap.id);
+          if (userData.mapStates && userData.mapStates[defaultMap.id]) {
+            importData(userData.mapStates[defaultMap.id]);
+          }
+        } else {
+          // 创建默认导图
+          const defaultState = createInitialState();
+          const defaultMap: MapMeta = {
+            id: 'default',
+            name: '默认导图',
+            folderId: null,
+            updatedAt: Date.now(),
+          };
+          setMaps([defaultMap]);
+          setMapStates({ default: defaultState });
+          setCurrentMapId('default');
+          importData(defaultState);
+        }
+      } else {
+        // 新用户，创建默认数据
+        const defaultState = createInitialState();
+        const defaultMap: MapMeta = {
+          id: 'default',
+          name: '默认导图',
+          folderId: null,
+          updatedAt: Date.now(),
+        };
+        setFolders([]);
+        setMaps([defaultMap]);
+        setMapStates({ default: defaultState });
+        setDocuments([]);
+        setCurrentMapId('default');
+        importData(defaultState);
+      }
+      setIsUserDataLoaded(true);
+    } else {
+      setIsUserDataLoaded(false);
+    }
+  }, [currentUser, importData]);
+
+  // 保存用户数据
+  useEffect(() => {
+    if (currentUser && isUserDataLoaded) {
+      const userData: UserData = {
+        folders,
+        maps,
+        mapStates,
+        documents,
+      };
+      saveUserData(currentUser.id, userData);
+    }
+  }, [currentUser, isUserDataLoaded, folders, maps, mapStates, documents]);
+
   useEffect(() => {
     setMapStates((prev) => ({
       ...prev,
@@ -531,6 +685,107 @@ function App() {
 
   const currentDocument = documents.find((d) => d.id === currentDocumentId);
 
+  // 登录/注册处理（localStorage 版本：对用户名/邮箱做校验，并校验密码 hash）
+  const handleLogin = async () => {
+    if (!authUsername || !authPassword) {
+      alert('请输入用户名和密码');
+      return;
+    }
+    if (!isValidUsername(authUsername)) {
+      alert('用户名格式不正确：3-20 位，只能包含字母/数字/_/-');
+      return;
+    }
+    if (!isValidPassword(authPassword)) {
+      alert('密码至少 6 位');
+      return;
+    }
+
+    const users = getUsers();
+    const stored = users.find((u) => u.username === authUsername);
+    if (!stored) {
+      alert('用户名或密码错误');
+      return;
+    }
+
+    const inputHash = await hashPassword(authPassword, stored.salt);
+    if (inputHash !== stored.passwordHash) {
+      alert('用户名或密码错误');
+      return;
+    }
+
+    const publicUser = toPublicUser(stored);
+    setIsUserDataLoaded(false);
+    setCurrentUserState(publicUser);
+    setCurrentUser(publicUser);
+    setShowAuthModal(false);
+    setAuthUsername('');
+    setAuthPassword('');
+    setAuthEmail('');
+  };
+
+  const handleRegister = async () => {
+    if (!authUsername || !authEmail || !authPassword) {
+      alert('请填写所有字段');
+      return;
+    }
+    if (!isValidUsername(authUsername)) {
+      alert('用户名格式不正确：3-20 位，只能包含字母/数字/_/-');
+      return;
+    }
+    if (!isValidEmail(authEmail)) {
+      alert('邮箱格式不正确');
+      return;
+    }
+    if (!isValidPassword(authPassword)) {
+      alert('密码至少 6 位');
+      return;
+    }
+
+    const users = getUsers();
+    if (users.find((u) => u.username === authUsername)) {
+      alert('用户名已存在');
+      return;
+    }
+    if (users.find((u) => u.email === authEmail)) {
+      alert('邮箱已被注册');
+      return;
+    }
+
+    const salt = crypto.randomUUID();
+    const passwordHash = await hashPassword(authPassword, salt);
+    const newUser: StoredUser = {
+      id: crypto.randomUUID(),
+      username: authUsername,
+      email: authEmail,
+      createdAt: Date.now(),
+      salt,
+      passwordHash,
+    };
+
+    saveUsers([...users, newUser]);
+
+    const publicUser = toPublicUser(newUser);
+    setIsUserDataLoaded(false);
+    setCurrentUserState(publicUser);
+    setCurrentUser(publicUser);
+    setShowAuthModal(false);
+    setAuthUsername('');
+    setAuthPassword('');
+    setAuthEmail('');
+  };
+
+  const handleLogout = () => {
+    setCurrentUserState(null);
+    setCurrentUser(null);
+    setIsUserDataLoaded(false);
+    setFolders([]);
+    setMaps([]);
+    setMapStates({});
+    setDocuments([]);
+    setCurrentMapId('');
+    setCurrentDocumentId(null);
+  };
+
   const positions = layout;
   const allNodes = Object.values(nodes);
 
@@ -545,12 +800,91 @@ function App() {
 
   const visibleNodes = allNodes.filter((n) => isVisible(n.id));
 
+  // 如果未登录，显示登录界面
+  if (!currentUser) {
+    return (
+      <div className="app">
+        <div className="auth-container">
+          <div className="auth-card">
+            <h1 className="auth-title">轻量思维导图</h1>
+            <div className="auth-tabs">
+              <button
+                className={`auth-tab ${authMode === 'login' ? 'active' : ''}`}
+                onClick={() => setAuthMode('login')}
+              >
+                登录
+              </button>
+              <button
+                className={`auth-tab ${authMode === 'register' ? 'active' : ''}`}
+                onClick={() => setAuthMode('register')}
+              >
+                注册
+              </button>
+            </div>
+            <div className="auth-form">
+              <input
+                type="text"
+                className="auth-input"
+                placeholder="用户名"
+                value={authUsername}
+                onChange={(e) => setAuthUsername(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    authMode === 'login' ? handleLogin() : handleRegister();
+                  }
+                }}
+              />
+              {authMode === 'register' && (
+                <input
+                  type="email"
+                  className="auth-input"
+                  placeholder="邮箱"
+                  value={authEmail}
+                  onChange={(e) => setAuthEmail(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleRegister();
+                    }
+                  }}
+                />
+              )}
+              <input
+                type="password"
+                className="auth-input"
+                placeholder="密码"
+                value={authPassword}
+                onChange={(e) => setAuthPassword(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    authMode === 'login' ? handleLogin() : handleRegister();
+                  }
+                }}
+              />
+              <button
+                className="auth-button"
+                onClick={authMode === 'login' ? handleLogin : handleRegister}
+              >
+                {authMode === 'login' ? '登录' : '注册'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="app">
       <div className="toolbar">
         <div className="title">轻量思维导图</div>
         <span className="badge">MVP</span>
         <div style={{ flex: 1 }} />
+        <div className="user-info">
+          <span className="username">{currentUser.username}</span>
+          <button className="button" onClick={handleLogout}>
+            退出登录
+          </button>
+        </div>
         <button className="button" onClick={() => selectedId && addChild(selectedId)}>
           子节点 (Tab)
         </button>

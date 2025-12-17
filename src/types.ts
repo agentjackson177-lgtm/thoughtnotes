@@ -40,3 +40,22 @@ export type DocumentMeta = {
   content: string;
 };
 
+export type User = {
+  id: string;
+  username: string;
+  email: string;
+  createdAt: number;
+};
+
+export type StoredUser = User & {
+  salt: string;
+  passwordHash: string;
+};
+
+export type UserData = {
+  folders: FolderMeta[];
+  maps: MapMeta[];
+  mapStates: Record<string, MindMapState>;
+  documents: DocumentMeta[];
+};
+
