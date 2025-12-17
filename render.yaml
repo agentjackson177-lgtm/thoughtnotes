@@ -1,0 +1,6 @@
+services:
+  - type: static
+    name: mindmap-web
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+

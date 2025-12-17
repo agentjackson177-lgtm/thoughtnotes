@@ -33,6 +33,11 @@ type Actions = {
   reset: () => void;
   setPriority: (id: string, value: number | null) => void;
   setProgress: (id: string, value: MindNode['progress']) => void;
+  moveNode: (nodeId: string, newParentId: string | null, insertAfterId?: string) => void;
+  moveUp: (id: string) => void;
+  moveDown: (id: string) => void;
+  copyNode: (id: string) => void;
+  pasteNode: (parentId: string) => void;
 };
 
 export const useMindMap = create<MindMapState & Actions>((set, get) => ({
@@ -134,6 +139,129 @@ export const useMindMap = create<MindMapState & Actions>((set, get) => ({
     set((state) => ({
       nodes: { ...state.nodes, [id]: { ...state.nodes[id], progress: value } },
     })),
+  moveNode: (nodeId, newParentId, insertAfterId) =>
+    set((state) => {
+      const node = state.nodes[nodeId];
+      if (!node) return state;
+      if (nodeId === state.rootId) return state; // 不能移动根节点
+
+      // 检查不能移动到自己的子节点
+      const isDescendant = (id: string, ancestorId: string): boolean => {
+        const n = state.nodes[id];
+        if (!n || !n.parentId) return false;
+        if (n.parentId === ancestorId) return true;
+        return isDescendant(n.parentId, ancestorId);
+      };
+      if (newParentId && isDescendant(newParentId, nodeId)) return state;
+
+      const nodes = { ...state.nodes };
+      const oldParent = node.parentId ? nodes[node.parentId] : null;
+
+      // 从旧父节点移除
+      if (oldParent) {
+        nodes[oldParent.id] = {
+          ...oldParent,
+          children: oldParent.children.filter((cid) => cid !== nodeId),
+        };
+      }
+
+      // 添加到新父节点
+      if (newParentId) {
+        const newParent = nodes[newParentId];
+        if (newParent) {
+          if (insertAfterId) {
+            const index = newParent.children.indexOf(insertAfterId);
+            const newChildren = [...newParent.children];
+            newChildren.splice(index + 1, 0, nodeId);
+            nodes[newParentId] = { ...newParent, children: newChildren };
+          } else {
+            nodes[newParentId] = {
+              ...newParent,
+              children: [...newParent.children, nodeId],
+            };
+          }
+        }
+        nodes[nodeId] = {
+          ...node,
+          parentId: newParentId,
+          side: newParent?.side,
+        };
+      }
+
+      return { nodes };
+    }),
+  moveUp: (id) =>
+    set((state) => {
+      const node = state.nodes[id];
+      if (!node || !node.parentId) return state;
+      const parent = state.nodes[node.parentId];
+      const index = parent.children.indexOf(id);
+      if (index <= 0) return state;
+      const newChildren = [...parent.children];
+      [newChildren[index - 1], newChildren[index]] = [newChildren[index], newChildren[index - 1]];
+      return {
+        nodes: { ...state.nodes, [node.parentId]: { ...parent, children: newChildren } },
+      };
+    }),
+  moveDown: (id) =>
+    set((state) => {
+      const node = state.nodes[id];
+      if (!node || !node.parentId) return state;
+      const parent = state.nodes[node.parentId];
+      const index = parent.children.indexOf(id);
+      if (index >= parent.children.length - 1) return state;
+      const newChildren = [...parent.children];
+      [newChildren[index], newChildren[index + 1]] = [newChildren[index + 1], newChildren[index]];
+      return {
+        nodes: { ...state.nodes, [node.parentId]: { ...parent, children: newChildren } },
+      };
+    }),
+  copyNode: (id) => {
+    const state = get();
+    const node = state.nodes[id];
+    if (!node) return;
+    const copyNodeRecursive = (nodeId: string): any => {
+      const n = state.nodes[nodeId];
+      return {
+        ...n,
+        id: nanoid(),
+        children: n.children.map(copyNodeRecursive),
+      };
+    };
+    const copied = copyNodeRecursive(id);
+    (window as any).__mindmapClipboard = copied;
+  },
+  pasteNode: (parentId) =>
+    set((state) => {
+      const clipboard = (window as any).__mindmapClipboard;
+      if (!clipboard) return state;
+      const parent = state.nodes[parentId];
+      if (!parent) return state;
+
+      const pasteRecursive = (node: any, newParentId: string): any => {
+        const newId = nanoid();
+        const newNode = {
+          ...node,
+          id: newId,
+          parentId: newParentId,
+          children: [],
+        };
+        const children = node.children.map((child: any) => pasteRecursive(child, newId));
+        return { node: newNode, children };
+      };
+
+      const { node: newRoot, children } = pasteRecursive(clipboard, parentId);
+      const nodes = { ...state.nodes, [newRoot.id]: newRoot };
+      children.forEach(({ node: n }: any) => {
+        nodes[n.id] = n;
+      });
+      nodes[parentId] = {
+        ...parent,
+        children: [...parent.children, newRoot.id],
+      };
+
+      return { nodes, selectedId: newRoot.id };
+    }),
 }));
 
 export const exportData = (state: MindMapState) => {
