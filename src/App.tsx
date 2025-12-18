@@ -1,7 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { DocumentMeta, FolderMeta, MapMeta, MindNode, StoredUser, User, UserData } from './types';
+import {
+  DocumentMeta,
+  FolderMeta,
+  HandwritingDocumentData,
+  MapMeta,
+  MindNode,
+  StoredUser,
+  User,
+  UserData,
+} from './types';
 import { createInitialState, exportData, useMindMap } from './hooks/useMindMap';
 import { calculateNodeDimensions } from './utils/textMeasure';
+import HandwritingEditor, { normalizeHandwritingData } from './components/HandwritingEditor';
 
 type PositionMap = Record<string, { x: number; y: number; depth: number; width: number; height: number }>;
 type NodeInfo = {
@@ -25,7 +35,14 @@ const computeLayout = (nodes: Record<string, MindNode>, rootId: string) => {
 
     // Calculate dimensions based on text content
     const dims = calculateNodeDimensions(node.title);
-    const width = dims.width;
+    // Reserve extra space for left badges (progress + priority) to avoid truncation
+    const hasProgress = !!node.progress && node.progress !== 'none';
+    const hasPriority = !!node.priority && node.priority >= 1 && node.priority <= 4;
+    // Reserve minimal space for left badges so text doesn't get clipped
+    const badgeReserve =
+      (hasProgress ? 18 : 0) + // 16px dot + small gap
+      (hasPriority ? (hasProgress ? 6 : 0) + 22 : 0); // pill + optional gap
+    const width = dims.width + (hasProgress || hasPriority ? badgeReserve : 0);
     const height = dims.height; // Fixed 40px
 
     // Calculate treeHeight
@@ -222,7 +239,7 @@ const setCurrentUser = (user: User | null) => {
 };
 
 function App() {
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  // JSON 导入/导出已移除（账号系统下自动保存）
   const [currentUser, setCurrentUserState] = useState<User | null>(() => getCurrentUser());
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
@@ -241,6 +258,15 @@ function App() {
   const [documents, setDocuments] = useState<DocumentMeta[]>([]);
   const [currentDocumentId, setCurrentDocumentId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'mindmap' | 'document'>('mindmap');
+  const [fileMenu, setFileMenu] = useState<
+    | null
+    | {
+        x: number;
+        y: number;
+        type: 'map' | 'document';
+        id: string;
+      }
+  >(null);
   const isPanning = useRef(false);
   const lastPoint = useRef<{ x: number; y: number } | null>(null);
   const draggingNodeId = useRef<string | null>(null);
@@ -334,6 +360,24 @@ function App() {
         endX,
         endY,
       });
+
+      // Live selection while dragging: select nodes whose CENTER is within the box
+      const boxMinX = Math.min(selectionStart.current.x, endX);
+      const boxMaxX = Math.max(selectionStart.current.x, endX);
+      const boxMinY = Math.min(selectionStart.current.y, endY);
+      const boxMaxY = Math.max(selectionStart.current.y, endY);
+
+      const picked: string[] = [];
+      // Compare in canvas-shell coordinates directly to avoid transform math bugs
+      visibleNodes.forEach((n) => {
+        const pos = positions[n.id];
+        if (!pos) return;
+        const cx = offset.x + (pos.x + pos.width / 2) * scale;
+        const cy = offset.y + (pos.y + pos.height / 2) * scale;
+        if (cx >= boxMinX && cx <= boxMaxX && cy >= boxMinY && cy <= boxMaxY) picked.push(n.id);
+      });
+      setSelectedIds(new Set(picked));
+      setSelected(picked.length > 0 ? picked[picked.length - 1] : null);
       return;
     }
     
@@ -355,32 +399,16 @@ function App() {
         const minY = Math.min(selectionBox.startY, selectionBox.endY);
         const maxY = Math.max(selectionBox.startY, selectionBox.endY);
         
-        // 将屏幕坐标转换为画布坐标
-        const boxLeft = (minX - offset.x) / scale;
-        const boxRight = (maxX - offset.x) / scale;
-        const boxTop = (minY - offset.y) / scale;
-        const boxBottom = (maxY - offset.y) / scale;
-        
         // 找到在选择框内的节点
         const selectedNodes: string[] = [];
         visibleNodes.forEach((node) => {
           const pos = positions[node.id];
           if (!pos) return;
-          
-          const nodeLeft = pos.x;
-          const nodeRight = pos.x + pos.width;
-          const nodeTop = pos.y;
-          const nodeBottom = pos.y + pos.height;
-          
-          // 检查节点是否在选择框内（有重叠即可）
-          if (
-            nodeRight >= boxLeft &&
-            nodeLeft <= boxRight &&
-            nodeBottom >= boxTop &&
-            nodeTop <= boxBottom
-          ) {
-            selectedNodes.push(node.id);
-          }
+
+          // Use center-point containment to avoid selecting whole horizontal rows
+          const cx = offset.x + (pos.x + pos.width / 2) * scale;
+          const cy = offset.y + (pos.y + pos.height / 2) * scale;
+          if (cx >= minX && cx <= maxX && cy >= minY && cy <= maxY) selectedNodes.push(node.id);
         });
         
         // 选中框内的所有节点
@@ -462,33 +490,90 @@ function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [addChild, addSibling, removeNode, rootId, selectedId, selectedIds, copyNode, pasteNode]);
 
+  // 关闭文件右键菜单
+  useEffect(() => {
+    const onClick = () => closeFileMenu();
+    const onContext = () => closeFileMenu();
+    window.addEventListener('click', onClick);
+    window.addEventListener('contextmenu', onContext);
+    return () => {
+      window.removeEventListener('click', onClick);
+      window.removeEventListener('contextmenu', onContext);
+    };
+  }, []);
+
   const handleNodeDragStart = (e: React.DragEvent, nodeId: string) => {
-    if (nodeId === rootId) return; // 不能拖拽根节点
+    if (nodeId === rootId) {
+      e.preventDefault();
+      return; // 不能拖拽根节点
+    }
     e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', ''); // 某些浏览器需要这个
     draggingNodeId.current = nodeId;
     // 如果当前节点在多选中，保持多选状态；否则单选
     if (!selectedIds.has(nodeId)) {
       setSelectedIds(new Set([nodeId]));
-      setSelected(nodeId);
+    setSelected(nodeId);
     }
+    // 清除之前的高亮
+    dragOverNodeId.current = null;
   };
 
   const handleNodeDragOver = (e: React.DragEvent, nodeId: string) => {
     e.preventDefault();
+    e.stopPropagation();
     e.dataTransfer.dropEffect = 'move';
-    if (draggingNodeId.current && draggingNodeId.current !== nodeId) {
+    if (draggingNodeId.current && draggingNodeId.current !== nodeId && nodeId !== rootId) {
       dragOverNodeId.current = nodeId;
+      // 强制重新渲染以显示高亮
+      setSelectedIds((prev) => new Set(prev));
     }
   };
 
-  const handleNodeDragEnd = () => {
-    if (draggingNodeId.current && dragOverNodeId.current) {
-      const draggedId = draggingNodeId.current;
-      const targetId = dragOverNodeId.current;
+  const handleCanvasDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    // 在 canvas 上拖动时，通过鼠标位置查找目标节点
+    if (draggingNodeId.current && canvasShellRef.current) {
+      const rect = canvasShellRef.current.getBoundingClientRect();
+      const x = (e.clientX - rect.left - offset.x) / scale;
+      const y = (e.clientY - rect.top - offset.y) / scale;
       
+      // 查找鼠标位置下的节点
+      let targetNodeId: string | null = null;
+      for (const node of visibleNodes) {
+        const pos = positions[node.id];
+        if (!pos) continue;
+        if (x >= pos.x && x <= pos.x + (pos.width || 140) &&
+            y >= pos.y && y <= pos.y + (pos.height || 40)) {
+          if (node.id !== draggingNodeId.current && node.id !== rootId) {
+            targetNodeId = node.id;
+            break;
+          }
+        }
+      }
+      
+      if (targetNodeId !== dragOverNodeId.current) {
+        dragOverNodeId.current = targetNodeId;
+        setSelectedIds((prev) => new Set(prev));
+      }
+    }
+  };
+
+  const resolveDropTargetId = (): string | null => {
+    // Prefer dragOver id, fallback to hit-test by pointer position (best-effort)
+    if (dragOverNodeId.current) return dragOverNodeId.current;
+    return null;
+  };
+
+  const handleNodeDragEnd = (e?: React.DragEvent) => {
+    const targetId = resolveDropTargetId();
+      const draggedId = draggingNodeId.current;
+    
+    if (draggedId && targetId && draggedId !== targetId) {
       // 如果拖拽的节点在多选中，批量移动所有选中的节点
       if (selectedIds.has(draggedId) && selectedIds.size > 1) {
-        const idsToMove = Array.from(selectedIds).filter(id => id !== rootId && id !== targetId);
+        const idsToMove = Array.from(selectedIds).filter((id) => id !== rootId && id !== targetId);
         idsToMove.forEach(id => {
           // 检查不能移动到自己的子节点
           const node = nodes[id];
@@ -505,11 +590,23 @@ function App() {
           }
         });
       } else {
-        moveNode(draggedId, targetId);
+        // 检查不能移动到自己的子节点
+        const isDescendant = (checkId: string, ancestorId: string): boolean => {
+          const n = nodes[checkId];
+          if (!n || !n.parentId) return false;
+          if (n.parentId === ancestorId) return true;
+          return isDescendant(n.parentId, ancestorId);
+        };
+        if (!isDescendant(targetId, draggedId)) {
+      moveNode(draggedId, targetId);
+    }
       }
     }
+    
     draggingNodeId.current = null;
     dragOverNodeId.current = null;
+    // 强制重新渲染以清除高亮
+    setSelectedIds((prev) => new Set(prev));
   };
 
   const handleContextMenu = (e: React.MouseEvent, nodeId: string) => {
@@ -521,21 +618,7 @@ function App() {
 
   const closeContextMenu = () => setContextMenu(null);
 
-  const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const data = JSON.parse(String(reader.result));
-        importData(data);
-      } catch (err) {
-        console.error('Invalid JSON', err);
-      }
-    };
-    reader.readAsText(file);
-    event.target.value = '';
-  };
+  // handleImport 已移除
 
   // 加载用户数据（防止刷新时被“自动保存”覆盖：未完成加载前不允许保存）
   useEffect(() => {
@@ -546,7 +629,19 @@ function App() {
         setFolders(userData.folders || []);
         setMaps(userData.maps || []);
         setMapStates(userData.mapStates || {});
-        setDocuments(userData.documents || []);
+        // 兼容旧数据：没有 kind 的文档默认为 text
+        const normalizedDocs = (userData.documents || []).map((d: any) => {
+          const kind = d.kind ?? (d.handwritingData ? 'handwriting' : 'text');
+          const content = typeof d.content === 'string' ? d.content : '';
+          const handwritingData = normalizeHandwritingData(d.handwritingData as HandwritingDocumentData | undefined);
+          return {
+            ...d,
+            kind,
+            content,
+            handwritingData: kind === 'handwriting' ? handwritingData : undefined,
+          } as DocumentMeta;
+        });
+        setDocuments(normalizedDocs);
         
         // 如果有默认导图，加载它
         if (userData.maps && userData.maps.length > 0) {
@@ -657,7 +752,35 @@ function App() {
       name,
       folderId,
       updatedAt: Date.now(),
+      kind: 'text',
       content: '',
+    };
+    setDocuments((prev) => [...prev, newDoc]);
+    setCurrentDocumentId(id);
+    setViewMode('document');
+  };
+
+  const handleCreateHandwritingDocument = (folderId: string | null) => {
+    const name = window.prompt('新建手写文档名称');
+    if (!name) return;
+    const modeInput = window.prompt('选择画布模式：输入 1=无限画布；2=分页笔记', '1');
+    if (!modeInput) return;
+    const mode = modeInput.trim() === '2' ? 'paged' : 'infinite';
+    const id = crypto.randomUUID();
+    const baseHw = normalizeHandwritingData(undefined);
+    const newDoc: DocumentMeta = {
+      id,
+      name,
+      folderId,
+      updatedAt: Date.now(),
+      kind: 'handwriting',
+      content: '',
+      handwritingData: {
+        ...baseHw,
+        mode,
+        pageCount: 1,
+        height: baseHw.height,
+      },
     };
     setDocuments((prev) => [...prev, newDoc]);
     setCurrentDocumentId(id);
@@ -669,6 +792,67 @@ function App() {
     setViewMode('document');
   };
 
+  const closeFileMenu = () => setFileMenu(null);
+
+  const moveTargetPrompt = (): string | null => {
+    const opts = ['root', ...folders.map((f) => f.id)].join(', ');
+    const input = window.prompt(`移动到哪里？输入 root 或文件夹ID\n可选: ${opts}`, 'root');
+    if (!input) return null;
+    const v = input.trim();
+    if (v === 'root') return null;
+    if (folders.some((f) => f.id === v)) return v;
+    alert('无效的目标文件夹ID');
+    return null;
+  };
+
+  const renameMap = (id: string) => {
+    const m = maps.find((x) => x.id === id);
+    if (!m) return;
+    const name = window.prompt('重命名导图', m.name);
+    if (!name) return;
+    setMaps((prev) => prev.map((x) => (x.id === id ? { ...x, name, updatedAt: Date.now() } : x)));
+  };
+
+  const deleteMapById = (id: string) => {
+    if (!window.confirm('确定删除该导图？')) return;
+    setMaps((prev) => prev.filter((x) => x.id !== id));
+    setMapStates((prev) => {
+      const next = { ...prev };
+      delete (next as any)[id];
+      return next;
+    });
+    if (currentMapId === id) {
+      const remaining = maps.filter((x) => x.id !== id);
+      if (remaining.length > 0) handleSwitchMap(remaining[0].id);
+    }
+  };
+
+  const moveMap = (id: string) => {
+    const folderId = moveTargetPrompt();
+    setMaps((prev) => prev.map((x) => (x.id === id ? { ...x, folderId, updatedAt: Date.now() } : x)));
+  };
+
+  const renameDocument = (id: string) => {
+    const d = documents.find((x) => x.id === id);
+    if (!d) return;
+    const name = window.prompt('重命名文档', d.name);
+    if (!name) return;
+    setDocuments((prev) => prev.map((x) => (x.id === id ? { ...x, name, updatedAt: Date.now() } : x)));
+  };
+
+  const deleteDocumentById = (id: string) => {
+    if (!window.confirm('确定删除该文档？')) return;
+    setDocuments((prev) => prev.filter((x) => x.id !== id));
+    if (currentDocumentId === id) {
+      setCurrentDocumentId(null);
+    }
+  };
+
+  const moveDocument = (id: string) => {
+    const folderId = moveTargetPrompt();
+    setDocuments((prev) => prev.map((x) => (x.id === id ? { ...x, folderId, updatedAt: Date.now() } : x)));
+  };
+
   const handleUpdateDocumentContent = (id: string, content: string) => {
     setDocuments((prev) =>
       prev.map((doc) =>
@@ -676,6 +860,21 @@ function App() {
           ? {
               ...doc,
               content,
+              updatedAt: Date.now(),
+            }
+          : doc,
+      ),
+    );
+  };
+
+  const handleUpdateHandwritingData = (id: string, handwritingData: HandwritingDocumentData) => {
+    setDocuments((prev) =>
+      prev.map((doc) =>
+        doc.id === id
+          ? {
+              ...doc,
+              kind: 'handwriting',
+              handwritingData,
               updatedAt: Date.now(),
             }
           : doc,
@@ -916,19 +1115,7 @@ function App() {
         <button className="button" onClick={reset}>
           复位
         </button>
-        <button className="button" onClick={() => exportData({ nodes, rootId, selectedId, scale, offset })}>
-          导出 JSON
-        </button>
-        <button className="button" onClick={() => fileInputRef.current?.click()}>
-          导入 JSON
-        </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="application/json"
-          style={{ display: 'none' }}
-          onChange={handleImport}
-        />
+        {/* 导入/导出 JSON 按钮已移除（账号系统下自动保存） */}
         {selectedId && (
           <div className="priority-group">
             <div className="priority-label">优先级</div>
@@ -971,18 +1158,28 @@ function App() {
               <button className="icon-btn" onClick={() => handleCreateDocument(null)} title="新建文档">
                 📄+
               </button>
+              <button
+                className="icon-btn"
+                onClick={() => handleCreateHandwritingDocument(null)}
+                title="新建手写文档"
+              >
+                ✍️+
+              </button>
             </div>
           </div>
           <div className="folder-section">
             <div className="folder-row">
               <span>根目录</span>
               <div>
-                <button className="link-btn" onClick={() => handleCreateMap(null)}>
-                  新建导图
-                </button>
+              <button className="link-btn" onClick={() => handleCreateMap(null)}>
+                新建导图
+              </button>
                 <button className="link-btn" onClick={() => handleCreateDocument(null)}>
                   新建文档
                 </button>
+                <button className="link-btn" onClick={() => handleCreateHandwritingDocument(null)}>
+                  新建手写
+              </button>
               </div>
             </div>
             {maps
@@ -992,6 +1189,11 @@ function App() {
                   key={m.id}
                   className={`map-row ${currentMapId === m.id && viewMode === 'mindmap' ? 'active' : ''}`}
                   onClick={() => handleSwitchMap(m.id)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setFileMenu({ x: e.clientX, y: e.clientY, type: 'map', id: m.id });
+                  }}
                 >
                   <div className="map-name">🗺️ {m.name}</div>
                   <div className="map-meta">{new Date(m.updatedAt).toLocaleDateString()}</div>
@@ -1004,8 +1206,15 @@ function App() {
                   key={d.id}
                   className={`map-row ${currentDocumentId === d.id && viewMode === 'document' ? 'active' : ''}`}
                   onClick={() => handleSwitchDocument(d.id)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setFileMenu({ x: e.clientX, y: e.clientY, type: 'document', id: d.id });
+                  }}
                 >
-                  <div className="map-name">📄 {d.name}</div>
+                  <div className="map-name">
+                    {d.kind === 'handwriting' ? '✍️' : '📄'} {d.name}
+                  </div>
                   <div className="map-meta">{new Date(d.updatedAt).toLocaleDateString()}</div>
                 </div>
               ))}
@@ -1021,6 +1230,9 @@ function App() {
                   <button className="link-btn" onClick={() => handleCreateDocument(folder.id)}>
                     新建文档
                   </button>
+                  <button className="link-btn" onClick={() => handleCreateHandwritingDocument(folder.id)}>
+                    新建手写
+                  </button>
                 </div>
               </div>
               {maps
@@ -1030,6 +1242,11 @@ function App() {
                     key={m.id}
                     className={`map-row ${currentMapId === m.id && viewMode === 'mindmap' ? 'active' : ''}`}
                     onClick={() => handleSwitchMap(m.id)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setFileMenu({ x: e.clientX, y: e.clientY, type: 'map', id: m.id });
+                    }}
                   >
                     <div className="map-name">🗺️ {m.name}</div>
                     <div className="map-meta">{new Date(m.updatedAt).toLocaleDateString()}</div>
@@ -1042,14 +1259,61 @@ function App() {
                     key={d.id}
                     className={`map-row ${currentDocumentId === d.id && viewMode === 'document' ? 'active' : ''}`}
                     onClick={() => handleSwitchDocument(d.id)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setFileMenu({ x: e.clientX, y: e.clientY, type: 'document', id: d.id });
+                    }}
                   >
-                    <div className="map-name">📄 {d.name}</div>
+                    <div className="map-name">
+                      {d.kind === 'handwriting' ? '✍️' : '📄'} {d.name}
+                    </div>
                     <div className="map-meta">{new Date(d.updatedAt).toLocaleDateString()}</div>
                   </div>
                 ))}
             </div>
           ))}
         </aside>
+
+        {fileMenu && (
+          <div
+            className="context-menu"
+            style={{ left: `${fileMenu.x}px`, top: `${fileMenu.y}px` }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              className="context-menu-item"
+              onClick={() => {
+                if (fileMenu.type === 'map') renameMap(fileMenu.id);
+                else renameDocument(fileMenu.id);
+                closeFileMenu();
+              }}
+            >
+              重命名
+            </button>
+            <button
+              className="context-menu-item"
+              onClick={() => {
+                if (fileMenu.type === 'map') moveMap(fileMenu.id);
+                else moveDocument(fileMenu.id);
+                closeFileMenu();
+              }}
+            >
+              移动
+            </button>
+            <div className="context-menu-divider" />
+            <button
+              className="context-menu-item danger"
+              onClick={() => {
+                if (fileMenu.type === 'map') deleteMapById(fileMenu.id);
+                else deleteDocumentById(fileMenu.id);
+                closeFileMenu();
+              }}
+            >
+              删除
+            </button>
+          </div>
+        )}
 
         {viewMode === 'mindmap' ? (
         <div
@@ -1060,6 +1324,11 @@ function App() {
           onPointerMove={movePan}
           onPointerUp={endPan}
           onPointerLeave={endPan}
+          onDragOver={handleCanvasDragOver}
+          onDrop={(e) => {
+            e.preventDefault();
+            handleNodeDragEnd();
+          }}
         >
           <svg
             className="canvas"
@@ -1122,33 +1391,56 @@ function App() {
               transformOrigin: 'top left',
             }}
           >
-            {visibleNodes.map((node) => {
-              const pos = positions[node.id] ?? { x: 0, y: 0, depth: 0, width: 140, height: 40 };
-              const isDragging = draggingNodeId.current === node.id;
-              const isDragOver = dragOverNodeId.current === node.id;
-              const nodeWidth = pos.width || 140;
-              const nodeHeight = pos.height || 40;
-              const hasChildren = node.children.length > 0;
-              
-              return (
-                <React.Fragment key={node.id}>
-                  <div
+          {visibleNodes.map((node) => {
+            const pos = positions[node.id] ?? { x: 0, y: 0, depth: 0, width: 140, height: 40 };
+              const isDragging = !!draggingNodeId.current && selectedIds.has(node.id);
+            const isDragOver = dragOverNodeId.current === node.id;
+            const nodeWidth = pos.width || 140;
+            const nodeHeight = pos.height || 40;
+            const hasChildren = node.children.length > 0;
+              const hasProgress = !!node.progress && node.progress !== 'none';
+              const hasPriority = !!node.priority && node.priority >= 1 && node.priority <= 4;
+              const leftPad = hasProgress && hasPriority ? 58 : hasProgress ? 42 : hasPriority ? 38 : 20;
+            
+            return (
+              <React.Fragment key={node.id}>
+                <div
                     className={`node ${selectedIds.has(node.id) ? 'selected' : ''} ${isDragging ? 'dragging' : ''} ${isDragOver ? 'drag-over' : ''}`}
-                    style={{
+                  style={{
                       transform: `translate(${pos.x}px, ${pos.y}px)`,
-                      transformOrigin: 'top left',
-                      width: `${nodeWidth}px`,
-                      height: `${nodeHeight}px`,
+                    transformOrigin: 'top left',
+                    width: `${nodeWidth}px`,
+                    height: `${nodeHeight}px`,
+                  }}
+                  draggable={node.id !== rootId}
+                  onDragStart={(e) => handleNodeDragStart(e, node.id)}
+                  onDragOver={(e) => handleNodeDragOver(e, node.id)}
+                    onDragEnter={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (draggingNodeId.current && draggingNodeId.current !== node.id && node.id !== rootId) {
+                        dragOverNodeId.current = node.id;
+                      }
                     }}
-                    draggable={node.id !== rootId}
-                    onDragStart={(e) => handleNodeDragStart(e, node.id)}
-                    onDragOver={(e) => handleNodeDragOver(e, node.id)}
-                    onDragEnd={handleNodeDragEnd}
+                    onDragLeave={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      // 只有当真正离开节点区域时才清除高亮
+                      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                      const x = e.clientX;
+                      const y = e.clientY;
+                      if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+                        if (dragOverNodeId.current === node.id) {
+                          dragOverNodeId.current = null;
+                        }
+                      }
+                    }}
+                  onDragEnd={handleNodeDragEnd}
                     onPointerDown={(e) => {
                       e.stopPropagation();
                     }}
-                    onClick={(e) => {
-                      e.stopPropagation();
+                  onClick={(e) => {
+                    e.stopPropagation();
                       if (e.metaKey || e.ctrlKey) {
                         // Ctrl/Cmd + 点击：切换选中状态
                         setSelectedIds((prev) => {
@@ -1162,7 +1454,7 @@ function App() {
                             }
                           } else {
                             next.add(node.id);
-                            setSelected(node.id);
+                    setSelected(node.id);
                           }
                           return next;
                         });
@@ -1171,18 +1463,46 @@ function App() {
                         setSelectedIds(new Set([node.id]));
                         setSelected(node.id);
                       }
-                    }}
-                    onContextMenu={(e) => handleContextMenu(e, node.id)}
-                  >
-                    {node.priority && node.priority >= 1 && node.priority <= 4 && (
-                      <span className={`priority-badge priority-${node.priority}`}>
-                        {node.priority}
-                      </span>
-                    )}
-                    <textarea
-                      className="node-text"
-                      value={node.title}
-                      onChange={(e) => updateTitle(node.id, e.target.value)}
+                  }}
+                  onContextMenu={(e) => handleContextMenu(e, node.id)}
+                >
+                    {hasProgress || hasPriority ? (
+                      <div className="node-left-badges">
+                        {hasProgress && (
+                          <span className={`node-progress progress ${node.progress}`} title={`进度: ${node.progress}`} />
+                        )}
+                        {hasPriority && (
+                          <span className={`priority-badge priority-${node.priority}`}>{node.priority}</span>
+                        )}
+                      </div>
+                    ) : null}
+                  <textarea
+                    className="node-text"
+                    value={node.title}
+                    onChange={(e) => updateTitle(node.id, e.target.value)}
+                      draggable={node.id !== rootId}
+                      onDragStart={(e) => {
+                        // 如果正在编辑文本，不触发拖动
+                        const textarea = e.target as HTMLTextAreaElement;
+                        if (document.activeElement === textarea && textarea.selectionStart !== textarea.selectionEnd) {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          return;
+                        }
+                        // 允许拖动事件冒泡，但确保调用 handleNodeDragStart
+                        if (node.id !== rootId) {
+                          handleNodeDragStart(e, node.id);
+                        }
+                      }}
+                      onDragOver={(e) => {
+                        // 阻止 textarea 的默认行为，让父节点的拖动处理生效
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }}
+                      onDragEnd={(e) => {
+                        e.stopPropagation();
+                        handleNodeDragEnd(e);
+                      }}
                       onMouseDown={(e) => {
                         e.stopPropagation();
                         const textarea = e.target as HTMLTextAreaElement;
@@ -1271,44 +1591,42 @@ function App() {
                           setSelected(node.id);
                         }
                       }}
-                      rows={1}
-                      style={{
-                        width: '100%',
-                        height: '100%',
-                        textAlign: 'center',
-                        lineHeight: `${nodeHeight}px`,
-                        paddingLeft: node.priority && node.priority >= 1 && node.priority <= 4 ? '28px' : '20px',
+                    rows={1}
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                        textAlign: hasProgress || hasPriority ? 'left' : 'center',
+                      lineHeight: `${nodeHeight}px`,
+                        paddingLeft: `${leftPad}px`,
                         paddingRight: '20px',
-                      }}
-                    />
-                  </div>
-                  {hasChildren && (
-                    <button
-                      className="collapse-btn-external"
-                      style={{
-                        position: 'absolute',
+                    }}
+                  />
+                </div>
+                {hasChildren && (
+                  <button
+                    className="collapse-btn-external"
+                    style={{
+                      position: 'absolute',
                         left: `${pos.x + nodeWidth + 10}px`,
                         top: `${pos.y + nodeHeight / 2}px`,
                         transform: 'translate(-50%, -50%)',
-                        transformOrigin: 'center',
-                      }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleCollapse(node.id);
-                      }}
-                    >
-                      {node.collapsed ? '+' : '−'}
-                    </button>
-                  )}
-                </React.Fragment>
-              );
-            })}
+                      transformOrigin: 'center',
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleCollapse(node.id);
+                    }}
+                  >
+                    {node.collapsed ? '+' : '−'}
+                  </button>
+                )}
+              </React.Fragment>
+            );
+          })}
           </div>
 
-          <div className="minimap">
-            <MiniMap positions={positions} nodes={nodes} />
+          {/* MiniMap 已移除 */}
           </div>
-        </div>
         ) : (
         <div className="document-editor">
           {currentDocument ? (
@@ -1317,14 +1635,21 @@ function App() {
                 <h2 className="document-title">{currentDocument.name}</h2>
                 <div className="document-meta">
                   最后更新: {new Date(currentDocument.updatedAt).toLocaleString()}
-                </div>
+        </div>
               </div>
-              <textarea
-                className="document-content"
-                value={currentDocument.content}
-                onChange={(e) => handleUpdateDocumentContent(currentDocument.id, e.target.value)}
-                placeholder="开始输入文档内容..."
-              />
+              {currentDocument.kind === 'handwriting' ? (
+                <HandwritingEditor
+                  value={normalizeHandwritingData(currentDocument.handwritingData)}
+                  onChange={(next) => handleUpdateHandwritingData(currentDocument.id, next)}
+                />
+              ) : (
+                <textarea
+                  className="document-content"
+                  value={currentDocument.content}
+                  onChange={(e) => handleUpdateDocumentContent(currentDocument.id, e.target.value)}
+                  placeholder="开始输入文档内容..."
+                />
+              )}
             </>
           ) : (
             <div className="document-empty">
@@ -1451,48 +1776,6 @@ function ContextMenu({
       </button>
     </div>
   );
-}
-
-function MiniMap({ positions, nodes }: { positions: PositionMap; nodes: Record<string, MindNode> }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    const xs = Object.values(positions).map((p) => p.x);
-    const ys = Object.values(positions).map((p) => p.y);
-    const minX = Math.min(...xs, 0);
-    const maxX = Math.max(...xs, 1);
-    const minY = Math.min(...ys, 0);
-    const maxY = Math.max(...ys, 1);
-    const scaleX = canvas.width / (maxX - minX + 1);
-    const scaleY = canvas.height / (maxY - minY + 1);
-    ctx.strokeStyle = '#cbd5e1';
-    ctx.lineWidth = 1;
-    Object.values(nodes).forEach((node) => {
-      if (node.parentId) {
-        const a = positions[node.parentId];
-        const b = positions[node.id];
-        if (a && b) {
-          ctx.beginPath();
-          ctx.moveTo((a.x - minX) * scaleX, (a.y - minY) * scaleY);
-          ctx.lineTo((b.x - minX) * scaleX, (b.y - minY) * scaleY);
-          ctx.stroke();
-        }
-      }
-    });
-    ctx.fillStyle = '#4f46e5';
-    Object.values(positions).forEach((p) => {
-      ctx.beginPath();
-      ctx.arc((p.x - minX) * scaleX, (p.y - minY) * scaleY, 3, 0, Math.PI * 2);
-      ctx.fill();
-    });
-  }, [nodes, positions]);
-
-  return <canvas ref={canvasRef} width={180} height={120} />;
 }
 
 export default App;

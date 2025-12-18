@@ -37,7 +37,36 @@ export type DocumentMeta = {
   name: string;
   folderId: string | null;
   updatedAt: number;
-  content: string;
+  kind?: 'text' | 'handwriting';
+  content: string; // text document content (handwriting can keep empty string)
+  handwritingData?: HandwritingDocumentData;
+};
+
+export type HandwritingBackground = 'blank' | 'lined';
+
+export type HandwritingCanvasMode = 'infinite' | 'paged';
+
+export type HandwritingPoint = {
+  x: number; // logical px (relative to a fixed logical width)
+  y: number; // logical px (grows as pages/height increase)
+  p: number; // pressure 0..1
+};
+
+export type HandwritingStroke = {
+  id: string;
+  color: string;
+  baseSize: number; // px
+  points: HandwritingPoint[];
+};
+
+export type HandwritingDocumentData = {
+  mode: HandwritingCanvasMode;
+  background: HandwritingBackground;
+  color: string;
+  baseSize: number; // default pen size
+  pageCount: number; // for paged mode
+  height: number; // logical px, for infinite mode (and as fallback)
+  strokes: HandwritingStroke[];
 };
 
 export type User = {
