@@ -1547,6 +1547,23 @@ function App() {
                     <div className="map-meta">{new Date(d.updatedAt).toLocaleDateString()}</div>
                   </div>
                 ))}
+              {flowcharts
+                .filter((f) => f.folderId === folder.id)
+                .map((f) => (
+                  <div
+                    key={f.id}
+                    className={`map-row ${currentFlowchartId === f.id && viewMode === 'flowchart' ? 'active' : ''}`}
+                    onClick={() => handleSwitchFlowchart(f.id)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setFileMenu({ x: e.clientX, y: e.clientY, type: 'flowchart', id: f.id });
+                    }}
+                  >
+                    <div className="map-name">🔀 {f.name}</div>
+                    <div className="map-meta">{new Date(f.updatedAt).toLocaleDateString()}</div>
+                  </div>
+                ))}
             </div>
           ))}
         </aside>

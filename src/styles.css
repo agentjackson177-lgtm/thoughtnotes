@@ -446,11 +446,11 @@ button {
 
 .folder-row {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: 1fr;
   align-items: center;
   font-weight: 600;
   margin-bottom: 6px;
-  gap: 12px;
+  gap: 8px;
 }
 
 .folder-row > span {
