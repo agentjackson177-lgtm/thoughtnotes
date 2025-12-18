@@ -21,7 +21,7 @@ const FLOWCHART_MULTI_LINE_PAD_Y = 20; // 10px top + 10px bottom（与 textarea 
 const FLOWCHART_LINE_HEIGHT_PX = 18; // 约等于 14px 字号 * 1.3
 
 // 流程图布局算法（从上到下）
-const computeFlowchartLayout = (nodes: Record<string, MindNode>, rootId: string) => {
+export const computeFlowchartLayout = (nodes: Record<string, MindNode>, rootId: string) => {
   const positions: PositionMap = {};
   const nodeInfo: Record<string, NodeInfo> = {};
 
@@ -136,6 +136,38 @@ const computeFlowchartLayout = (nodes: Record<string, MindNode>, rootId: string)
       };
       currentX += info.width + FLOWCHART_HORIZONTAL_GAP;
     });
+
+    // 单独子节点：强制与其父节点中心对齐（只在父节点已布局的情况下）
+    if (level > 0) {
+      const singleIds = levelNodeInfos
+        .map(({ id }) => id)
+        .filter((id) => nodes[id]?.flowchartChildType === 'single' && nodes[id]?.parentId);
+      singleIds.forEach((id) => {
+        const parentId = nodes[id]?.parentId;
+        if (!parentId) return;
+        const parentPos = positions[parentId];
+        const info = nodeInfo[id];
+        if (!parentPos || !info) return;
+        positions[id] = {
+          ...positions[id],
+          x: parentPos.x + parentPos.width / 2 - info.width / 2,
+        };
+      });
+
+      // 简单避让：按 x 排序，避免同层节点重叠
+      const sorted = levelNodeInfos
+        .map(({ id }) => id)
+        .filter((id) => positions[id])
+        .sort((a, b) => (positions[a].x ?? 0) - (positions[b].x ?? 0));
+      for (let i = 1; i < sorted.length; i++) {
+        const prev = positions[sorted[i - 1]];
+        const cur = positions[sorted[i]];
+        const minX = prev.x + prev.width + FLOWCHART_HORIZONTAL_GAP;
+        if (cur.x < minX) {
+          positions[sorted[i]] = { ...cur, x: minX };
+        }
+      }
+    }
 
     // 移动到下一层
     if (level < maxLevel) {
@@ -502,6 +534,8 @@ export default function FlowchartEditor({ initialState, onUpdate }: Props) {
           if (nextLevelNodeIds.length !== 1) return null;
 
           const mergeChildId = nextLevelNodeIds[0];
+          // 单独子节点：不参与汇聚连线（只保留真实父子线）
+          if (nodes[mergeChildId]?.flowchartChildType === 'single') return null;
           const mergeChildPos = positions[mergeChildId];
           if (!mergeChildPos) return null;
 

@@ -33,6 +33,7 @@ type Actions = {
   reset: () => void;
   setPriority: (id: string, value: number | null) => void;
   setProgress: (id: string, value: MindNode['progress']) => void;
+  setFlowchartChildType: (id: string, value: 'single' | null) => void;
   moveNode: (nodeId: string, newParentId: string | null, insertAfterId?: string) => void;
   moveUp: (id: string) => void;
   moveDown: (id: string) => void;
@@ -139,6 +140,18 @@ export const useMindMap = create<MindMapState & Actions>((set, get) => ({
     set((state) => ({
       nodes: { ...state.nodes, [id]: { ...state.nodes[id], progress: value } },
     })),
+  setFlowchartChildType: (id, value) =>
+    set((state) => {
+      const node = state.nodes[id];
+      if (!node) return state;
+      const next = { ...node } as any;
+      if (value === null) {
+        delete next.flowchartChildType;
+      } else {
+        next.flowchartChildType = value;
+      }
+      return { nodes: { ...state.nodes, [id]: next } };
+    }),
   moveNode: (nodeId, newParentId, insertAfterId) =>
     set((state) => {
       const node = state.nodes[nodeId];

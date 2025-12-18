@@ -14,6 +14,7 @@ import { createInitialState, exportData, useMindMap } from './hooks/useMindMap';
 import { calculateNodeDimensions } from './utils/textMeasure';
 import HandwritingEditor, { normalizeHandwritingData } from './components/HandwritingEditor';
 import FlowchartEditor from './components/FlowchartEditor';
+import { exportFlowchartAsPng, exportMindmapAsPng } from './utils/exportImage';
 
 type PositionMap = Record<string, { x: number; y: number; depth: number; width: number; height: number }>;
 type NodeInfo = {
@@ -426,6 +427,7 @@ function App() {
     moveDown,
     copyNode,
     pasteNode,
+    setFlowchartChildType,
   } = useMindMap();
 
   const layout = useMemo(() => computeLayout(nodes, rootId), [nodes, rootId]);
@@ -965,6 +967,23 @@ function App() {
 
   const closeFileMenu = () => setFileMenu(null);
 
+  const exportFileAsImage = async (type: 'map' | 'flowchart', id: string) => {
+    try {
+      if (type === 'map') {
+        const m = maps.find((x) => x.id === id);
+        const state = mapStates[id] ?? createInitialState();
+        await exportMindmapAsPng(state as any, (m?.name ?? '导图').trim() || '导图');
+      } else {
+        const f = flowcharts.find((x) => x.id === id);
+        const state = flowchartStates[id] ?? createInitialState();
+        await exportFlowchartAsPng(state as any, (f?.name ?? '流程图').trim() || '流程图');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('导出失败，请重试');
+    }
+  };
+
   const moveTargetPrompt = (): string | null => {
     const opts = ['root', ...folders.map((f) => f.id)].join(', ');
     const input = window.prompt(`移动到哪里？输入 root 或文件夹ID\n可选: ${opts}`, 'root');
@@ -1286,12 +1305,38 @@ function App() {
             退出登录
           </button>
         </div>
-        <button className="button" onClick={() => selectedId && addChild(selectedId)}>
-          子节点 (Tab)
-        </button>
-        <button className="button" onClick={() => selectedId && addSibling(selectedId)}>
-          同级 (Enter)
-        </button>
+        {viewMode === 'flowchart' ? (
+          <>
+            <button className="button" onClick={() => selectedId && addSibling(selectedId)}>
+              同级 (Tab)
+            </button>
+            <button className="button" onClick={() => selectedId && addChild(selectedId)}>
+              合并子节点 (Enter)
+            </button>
+            <button
+              className="button"
+              onClick={() => {
+                if (!selectedId) return;
+                // 先用现有逻辑创建子节点
+                addChild(selectedId);
+                // addChild 会把 selectedId 指向新节点；用 store 的 getState() 读取最新 id
+                const newId = useMindMap.getState().selectedId;
+                if (newId) setFlowchartChildType(newId, 'single');
+              }}
+            >
+              单独子节点
+            </button>
+          </>
+        ) : (
+          <>
+            <button className="button" onClick={() => selectedId && addChild(selectedId)}>
+              子节点 (Tab)
+            </button>
+            <button className="button" onClick={() => selectedId && addSibling(selectedId)}>
+              同级 (Enter)
+            </button>
+          </>
+        )}
         <button
           className="button"
           onClick={() => {
@@ -1512,6 +1557,20 @@ function App() {
             style={{ left: `${fileMenu.x}px`, top: `${fileMenu.y}px` }}
             onClick={(e) => e.stopPropagation()}
           >
+            {(fileMenu.type === 'map' || fileMenu.type === 'flowchart') && (
+              <>
+                <button
+                  className="context-menu-item"
+                  onClick={async () => {
+                    await exportFileAsImage(fileMenu.type, fileMenu.id);
+                    closeFileMenu();
+                  }}
+                >
+                  导出为图片
+                </button>
+                <div className="context-menu-divider" />
+              </>
+            )}
             <button
               className="context-menu-item"
               onClick={() => {

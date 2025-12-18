@@ -9,6 +9,11 @@ export type MindNode = {
   progress?: 'none' | 'q1' | 'q2' | 'q3' | 'done';
   width?: number; // Dynamic width based on text
   height?: number; // Dynamic height based on text
+  /**
+   * Flowchart-only: when a level has a single child node, we normally auto-draw "merge" lines from all siblings to it.
+   * Marking a node as 'single' disables that auto-merge behavior so only its real parent connects to it.
+   */
+  flowchartChildType?: 'single';
 };
 
 export type MindMapState = {
