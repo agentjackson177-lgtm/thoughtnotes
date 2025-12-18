@@ -81,10 +81,19 @@ export type StoredUser = User & {
   passwordHash: string;
 };
 
+export type FlowchartMeta = {
+  id: string;
+  name: string;
+  folderId: string | null;
+  updatedAt: number;
+};
+
 export type UserData = {
   folders: FolderMeta[];
   maps: MapMeta[];
   mapStates: Record<string, MindMapState>;
   documents: DocumentMeta[];
+  flowcharts: FlowchartMeta[];
+  flowchartStates: Record<string, MindMapState>;
 };
 

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   DocumentMeta,
+  FlowchartMeta,
   FolderMeta,
   HandwritingDocumentData,
   MapMeta,
@@ -12,6 +13,7 @@ import {
 import { createInitialState, exportData, useMindMap } from './hooks/useMindMap';
 import { calculateNodeDimensions } from './utils/textMeasure';
 import HandwritingEditor, { normalizeHandwritingData } from './components/HandwritingEditor';
+import FlowchartEditor from './components/FlowchartEditor';
 
 type PositionMap = Record<string, { x: number; y: number; depth: number; width: number; height: number }>;
 type NodeInfo = {
@@ -22,6 +24,125 @@ type NodeInfo = {
 
 const HORIZONTAL_GAP = 50;
 const VERTICAL_GAP = 20;
+const FLOWCHART_HORIZONTAL_GAP = 30;
+const FLOWCHART_VERTICAL_GAP = 50;
+
+// 流程图布局算法（从上到下）
+const computeFlowchartLayout = (nodes: Record<string, MindNode>, rootId: string) => {
+  const positions: PositionMap = {};
+  const nodeInfo: Record<string, NodeInfo> = {};
+
+  // Step 1: Pre-calculation (Post-order traversal)
+  const calculateNodeInfo = (id: string): number => {
+    const node = nodes[id];
+    if (!node) return 0;
+
+    const dims = calculateNodeDimensions(node.title);
+    const hasProgress = !!node.progress && node.progress !== 'none';
+    const hasPriority = !!node.priority && node.priority >= 1 && node.priority <= 4;
+    const badgeReserve =
+      (hasProgress ? 18 : 0) +
+      (hasPriority ? (hasProgress ? 6 : 0) + 22 : 0);
+    const width = dims.width + (hasProgress || hasPriority ? badgeReserve : 0);
+    const height = dims.height;
+
+    const visibleChildren = node.collapsed ? [] : node.children;
+    let treeWidth: number;
+
+    if (visibleChildren.length === 0) {
+      treeWidth = width;
+    } else {
+      let totalChildWidth = 0;
+      visibleChildren.forEach((childId) => {
+        totalChildWidth += calculateNodeInfo(childId);
+      });
+      treeWidth = totalChildWidth + (visibleChildren.length - 1) * FLOWCHART_HORIZONTAL_GAP;
+      treeWidth = Math.max(treeWidth, width);
+    }
+
+    nodeInfo[id] = { width, height, treeHeight: treeWidth };
+    return treeWidth;
+  };
+
+  calculateNodeInfo(rootId);
+
+  // Step 2: Main Layout (Pre-order traversal) - 从上到下
+  const setCoordinates = (
+    id: string,
+    parentY: number,
+    parentHeight: number,
+    parentCenterX: number,
+  ): void => {
+    const node = nodes[id];
+    if (!node) return;
+
+    const info = nodeInfo[id];
+    if (!info) return;
+
+    // Set Y: node.y = parent.y + parent.height + FLOWCHART_VERTICAL_GAP
+    const y = parentY + parentHeight + (id === rootId ? 0 : FLOWCHART_VERTICAL_GAP);
+
+    // Set X: 水平居中
+    const visibleChildren = node.collapsed ? [] : node.children;
+    let x: number;
+
+    if (visibleChildren.length === 0) {
+      // 叶子节点：使用父节点的中心X
+      x = parentCenterX - info.width / 2;
+    } else {
+      // 父节点：先计算子节点位置，然后居中父节点
+      let currentChildX = parentCenterX - info.treeHeight / 2;
+      const childXPositions: number[] = [];
+
+      visibleChildren.forEach((childId) => {
+        const childInfo = nodeInfo[childId];
+        if (!childInfo) return;
+
+        const childCenterX = currentChildX + childInfo.treeHeight / 2;
+        const childX = childCenterX - childInfo.width / 2;
+        childXPositions.push(childX);
+
+        setCoordinates(childId, y, info.height, childCenterX);
+
+        currentChildX += childInfo.treeHeight + FLOWCHART_HORIZONTAL_GAP;
+      });
+
+      // 居中父节点
+      if (childXPositions.length > 0) {
+        const firstChildX = childXPositions[0];
+        const lastChildX = childXPositions[childXPositions.length - 1];
+        const lastChildInfo = nodeInfo[visibleChildren[visibleChildren.length - 1]];
+        const childrenCenterX = (firstChildX + lastChildX + lastChildInfo.width) / 2;
+        x = childrenCenterX - info.width / 2;
+      } else {
+        x = parentCenterX - info.width / 2;
+      }
+    }
+
+    positions[id] = { x, y, depth: 0, width: info.width, height: info.height };
+  };
+
+  // 从根节点开始布局
+  const rootInfo = nodeInfo[rootId];
+  if (rootInfo) {
+    const rootNode = nodes[rootId];
+    const visibleChildren = rootNode?.collapsed ? [] : rootNode?.children || [];
+    
+    if (visibleChildren.length === 0) {
+      positions[rootId] = {
+        x: 0,
+        y: 0,
+        depth: 0,
+        width: rootInfo.width,
+        height: rootInfo.height,
+      };
+    } else {
+      setCoordinates(rootId, 0, 0, 0);
+    }
+  }
+
+  return positions;
+};
 
 const computeLayout = (nodes: Record<string, MindNode>, rootId: string) => {
   const positions: PositionMap = {};
@@ -257,13 +378,16 @@ function App() {
   const [currentMapId, setCurrentMapId] = useState('default');
   const [documents, setDocuments] = useState<DocumentMeta[]>([]);
   const [currentDocumentId, setCurrentDocumentId] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<'mindmap' | 'document'>('mindmap');
+  const [flowcharts, setFlowcharts] = useState<FlowchartMeta[]>([]);
+  const [flowchartStates, setFlowchartStates] = useState<Record<string, ReturnType<typeof createInitialState>>>({});
+  const [currentFlowchartId, setCurrentFlowchartId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'mindmap' | 'document' | 'flowchart'>('mindmap');
   const [fileMenu, setFileMenu] = useState<
     | null
     | {
         x: number;
         y: number;
-        type: 'map' | 'document';
+        type: 'map' | 'document' | 'flowchart';
         id: string;
       }
   >(null);
@@ -642,6 +766,8 @@ function App() {
           } as DocumentMeta;
         });
         setDocuments(normalizedDocs);
+        setFlowcharts(userData.flowcharts || []);
+        setFlowchartStates(userData.flowchartStates || {});
         
         // 如果有默认导图，加载它
         if (userData.maps && userData.maps.length > 0) {
@@ -694,10 +820,12 @@ function App() {
         maps,
         mapStates,
         documents,
+        flowcharts,
+        flowchartStates,
       };
       saveUserData(currentUser.id, userData);
     }
-  }, [currentUser, isUserDataLoaded, folders, maps, mapStates, documents]);
+  }, [currentUser, isUserDataLoaded, folders, maps, mapStates, documents, flowcharts, flowchartStates]);
 
   useEffect(() => {
     setMapStates((prev) => ({
@@ -760,6 +888,22 @@ function App() {
     setViewMode('document');
   };
 
+  const handleCreateFlowchart = (folderId: string | null) => {
+    const name = window.prompt('新建流程图名称');
+    if (!name) return;
+    const id = crypto.randomUUID();
+    const newFlowchart: FlowchartMeta = {
+      id,
+      name,
+      folderId,
+      updatedAt: Date.now(),
+    };
+    setFlowcharts([...flowcharts, newFlowchart]);
+    setFlowchartStates({ ...flowchartStates, [id]: createInitialState() });
+    setCurrentFlowchartId(id);
+    setViewMode('flowchart');
+  };
+
   const handleCreateHandwritingDocument = (folderId: string | null) => {
     const name = window.prompt('新建手写文档名称');
     if (!name) return;
@@ -790,6 +934,33 @@ function App() {
   const handleSwitchDocument = (id: string) => {
     setCurrentDocumentId(id);
     setViewMode('document');
+  };
+
+  const handleSwitchFlowchart = (id: string) => {
+    const next = flowchartStates[id];
+    if (!next) {
+      // 如果没有状态，创建一个新的
+      setFlowchartStates((prev) => ({ ...prev, [id]: createInitialState() }));
+    }
+    setCurrentFlowchartId(id);
+    setViewMode('flowchart');
+    setCurrentDocumentId(null);
+    setCurrentMapId('default');
+  };
+
+  const handleUpdateFlowchartState = (state: ReturnType<typeof createInitialState>) => {
+    if (!currentFlowchartId) return;
+    setFlowchartStates((prev) => ({
+      ...prev,
+      [currentFlowchartId]: { nodes: state.nodes, rootId: state.rootId, selectedId: state.selectedId, scale: state.scale, offset: state.offset },
+    }));
+    setFlowcharts((prev) =>
+      prev.map((f) =>
+        f.id === currentFlowchartId
+          ? { ...f, updatedAt: Date.now() }
+          : f,
+      ),
+    );
   };
 
   const closeFileMenu = () => setFileMenu(null);
@@ -838,6 +1009,37 @@ function App() {
     const name = window.prompt('重命名文档', d.name);
     if (!name) return;
     setDocuments((prev) => prev.map((x) => (x.id === id ? { ...x, name, updatedAt: Date.now() } : x)));
+  };
+
+  const renameFlowchart = (id: string) => {
+    const f = flowcharts.find((x) => x.id === id);
+    if (!f) return;
+    const name = window.prompt('重命名流程图', f.name);
+    if (!name) return;
+    setFlowcharts((prev) => prev.map((x) => (x.id === id ? { ...x, name, updatedAt: Date.now() } : x)));
+  };
+
+  const deleteFlowchartById = (id: string) => {
+    if (!window.confirm('确定删除该流程图？')) return;
+    setFlowcharts((prev) => prev.filter((x) => x.id !== id));
+    setFlowchartStates((prev) => {
+      const next = { ...prev };
+      delete (next as any)[id];
+      return next;
+    });
+    if (currentFlowchartId === id) {
+      const remaining = flowcharts.filter((x) => x.id !== id);
+      if (remaining.length > 0) handleSwitchFlowchart(remaining[0].id);
+      else {
+        setCurrentFlowchartId(null);
+        setViewMode('mindmap');
+      }
+    }
+  };
+
+  const moveFlowchart = (id: string) => {
+    const folderId = moveTargetPrompt();
+    setFlowcharts((prev) => prev.map((x) => (x.id === id ? { ...x, folderId, updatedAt: Date.now() } : x)));
   };
 
   const deleteDocumentById = (id: string) => {
@@ -1165,11 +1367,17 @@ function App() {
               >
                 ✍️+
               </button>
+              <button
+                className="icon-btn"
+                onClick={() => handleCreateFlowchart(null)}
+                title="新建流程图"
+              >
+                🔀+
+              </button>
             </div>
           </div>
           <div className="folder-section">
             <div className="folder-row">
-              <span>根目录</span>
               <div>
               <button className="link-btn" onClick={() => handleCreateMap(null)}>
                 新建导图
@@ -1179,6 +1387,9 @@ function App() {
                 </button>
                 <button className="link-btn" onClick={() => handleCreateHandwritingDocument(null)}>
                   新建手写
+                </button>
+                <button className="link-btn" onClick={() => handleCreateFlowchart(null)}>
+                  新建流程图
               </button>
               </div>
             </div>
@@ -1218,6 +1429,23 @@ function App() {
                   <div className="map-meta">{new Date(d.updatedAt).toLocaleDateString()}</div>
                 </div>
               ))}
+            {flowcharts
+              .filter((f) => f.folderId === null)
+              .map((f) => (
+                <div
+                  key={f.id}
+                  className={`map-row ${currentFlowchartId === f.id && viewMode === 'flowchart' ? 'active' : ''}`}
+                  onClick={() => handleSwitchFlowchart(f.id)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setFileMenu({ x: e.clientX, y: e.clientY, type: 'flowchart', id: f.id });
+                  }}
+                >
+                  <div className="map-name">🔀 {f.name}</div>
+                  <div className="map-meta">{new Date(f.updatedAt).toLocaleDateString()}</div>
+                </div>
+              ))}
           </div>
           {folders.map((folder) => (
             <div key={folder.id} className="folder-section">
@@ -1232,6 +1460,9 @@ function App() {
                   </button>
                   <button className="link-btn" onClick={() => handleCreateHandwritingDocument(folder.id)}>
                     新建手写
+                  </button>
+                  <button className="link-btn" onClick={() => handleCreateFlowchart(folder.id)}>
+                    新建流程图
                   </button>
                 </div>
               </div>
@@ -1285,7 +1516,8 @@ function App() {
               className="context-menu-item"
               onClick={() => {
                 if (fileMenu.type === 'map') renameMap(fileMenu.id);
-                else renameDocument(fileMenu.id);
+                else if (fileMenu.type === 'document') renameDocument(fileMenu.id);
+                else if (fileMenu.type === 'flowchart') renameFlowchart(fileMenu.id);
                 closeFileMenu();
               }}
             >
@@ -1295,7 +1527,8 @@ function App() {
               className="context-menu-item"
               onClick={() => {
                 if (fileMenu.type === 'map') moveMap(fileMenu.id);
-                else moveDocument(fileMenu.id);
+                else if (fileMenu.type === 'document') moveDocument(fileMenu.id);
+                else if (fileMenu.type === 'flowchart') moveFlowchart(fileMenu.id);
                 closeFileMenu();
               }}
             >
@@ -1306,7 +1539,8 @@ function App() {
               className="context-menu-item danger"
               onClick={() => {
                 if (fileMenu.type === 'map') deleteMapById(fileMenu.id);
-                else deleteDocumentById(fileMenu.id);
+                else if (fileMenu.type === 'document') deleteDocumentById(fileMenu.id);
+                else if (fileMenu.type === 'flowchart') deleteFlowchartById(fileMenu.id);
                 closeFileMenu();
               }}
             >
@@ -1627,6 +1861,17 @@ function App() {
 
           {/* MiniMap 已移除 */}
           </div>
+        ) : viewMode === 'flowchart' ? (
+          currentFlowchartId && flowchartStates[currentFlowchartId] ? (
+            <FlowchartEditor
+              initialState={flowchartStates[currentFlowchartId]}
+              onUpdate={handleUpdateFlowchartState}
+            />
+          ) : (
+            <div className="document-empty">
+              <p>请从左侧选择一个流程图，或创建一个新流程图</p>
+        </div>
+          )
         ) : (
         <div className="document-editor">
           {currentDocument ? (
