@@ -88,12 +88,18 @@ export const useMindMap = create<MindMapState & Actions>((set, get) => ({
         children: [],
         side: node.side,
       };
+      
+      // 在当前节点后面添加新节点
+      const currentIndex = parent.children.indexOf(id);
+      const newChildren = [...parent.children];
+      newChildren.splice(currentIndex + 1, 0, newId);
+      
       return {
         nodes: {
           ...state.nodes,
           [node.parentId]: {
             ...parent,
-            children: [...parent.children, newId],
+            children: newChildren,
           },
           [newId]: newNode,
         },

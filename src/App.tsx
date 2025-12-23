@@ -572,8 +572,27 @@ function App() {
       const isInInput = e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement;
       
       if (e.key === 'Backspace' || e.key === 'Delete') {
-        // 如果正在输入框中，且不是空内容，不处理删除节点
-        if (isInInput && (e.target as HTMLTextAreaElement | HTMLInputElement).value.length > 0) {
+        // 如果正在输入框中
+        if (isInInput) {
+          const target = e.target as HTMLTextAreaElement;
+          // 如果文本框是只读的，删除整个节点
+          if (target.readOnly) {
+            // 批量删除选中的节点
+            if (selectedIds.size > 1) {
+              const idsToDelete = Array.from(selectedIds).filter(id => id !== rootId);
+              if (idsToDelete.length > 0) {
+                e.preventDefault();
+                idsToDelete.forEach(id => removeNode(id));
+                setSelectedIds(new Set());
+                setSelected(null);
+              }
+            } else if (selectedId && selectedId !== rootId) {
+              e.preventDefault();
+              removeNode(selectedId);
+            }
+            return;
+          }
+          // 否则，让浏览器处理删除键
           return;
         }
         // 批量删除选中的节点
@@ -1970,17 +1989,16 @@ function App() {
                         const DOUBLE_CLICK_MS = 250;
                         const SECOND_CLICK_TO_EDIT_MS = 1200;
 
-                        // 快速双击：全选文本（仍保持只读，不进入输入）
+                        // 快速双击：全选文本并进入编辑状态
                         if (meta.stage === 'focused' && now - meta.lastAt <= DOUBLE_CLICK_MS) {
                           meta.stage = 'selectedAll';
                           meta.lastAt = 0;
                           mindmapClickMetaRef.current[nodeId] = meta;
+                          setMindmapEditingId(nodeId);
                           textarea.focus();
                           setTimeout(() => {
                             textarea.setSelectionRange(0, textarea.value.length);
                           }, 0);
-                          mindmapArmedEditClickRef.current[nodeId] = true;
-                          setMindmapEditingId(null);
                           return;
                         }
 
@@ -2006,11 +2024,11 @@ function App() {
                           return;
                         }
 
-                        // 第一次单击：只聚焦，不全选，不进入编辑
+                        // 第一次单击：聚焦并进入编辑状态，允许删除操作
                         meta.stage = 'focused';
                         meta.lastAt = now;
                         mindmapClickMetaRef.current[nodeId] = meta;
-                        setMindmapEditingId(null);
+                        setMindmapEditingId(nodeId);
                         textarea.focus();
                         {
                           const len = textarea.value.length;
@@ -2047,16 +2065,18 @@ function App() {
                         setMindmapEditingId(null);
                       }}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          // 结束输入并选中当前输入框
-                          const textarea = e.target as HTMLTextAreaElement;
-                          textarea.blur();
-                          setSelectedIds(new Set([node.id]));
-                          setSelected(node.id);
-                          setMindmapEditingId(null);
+                        // 只有在编辑状态下才处理Enter键
+                        if (mindmapEditingId === node.id) {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            // 结束输入并选中当前输入框
+                            const textarea = e.target as HTMLTextAreaElement;
+                            textarea.blur();
+                            setMindmapEditingId(null);
+                            // 不阻止事件冒泡，让窗口级别的键盘事件监听器处理Enter键
+                          }
                         }
+                        // 对于只读状态，不做任何处理，让键盘事件传递给窗口监听器
                       }}
                     rows={1}
                     style={{
