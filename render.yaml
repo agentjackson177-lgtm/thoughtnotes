@@ -16,16 +16,7 @@ services:
           name: mindmap-db
           property: connectionString
       - key: FRONTEND_ORIGIN
-        value: "*"
-
-  - type: static_site
-    name: mindmap-web
-    buildCommand: npm install && npm run build
-    staticPublishPath: ./dist
-    envVars:
-      # 让前端指向 API 服务（Render 会在部署后给 mindmap-api 分配 URL；也可以在 Render 控制台手动覆盖）
-      - key: VITE_API_URL
-        value: ""
+        value: "https://thoughtnotes.onrender.com"
 
 databases:
   - name: mindmap-db
