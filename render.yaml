@@ -18,7 +18,7 @@ services:
       - key: FRONTEND_ORIGIN
         value: "*"
 
-  - type: static
+  - type: static_site
     name: mindmap-web
     buildCommand: npm install && npm run build
     staticPublishPath: ./dist
