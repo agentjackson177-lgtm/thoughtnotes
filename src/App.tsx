@@ -1224,8 +1224,24 @@ function App() {
       setAuthPassword('');
       setAuthEmail('');
     } catch (e: any) {
-      if (String(e?.message) === 'invalid_credentials') alert('用户名/邮箱或密码错误');
-      else alert('登录失败，请重试');
+      const msg = String(e?.message || '');
+      if (msg === 'invalid_credentials') {
+        alert('用户名/邮箱或密码错误');
+        return;
+      }
+      if (msg === 'missing_api_url') {
+        alert('未配置云端 API 地址：请在 Render 的 Static Site 环境变量设置 VITE_API_URL=https://mindmap-api-qcew.onrender.com 并重新部署。');
+        return;
+      }
+      if (msg === 'bad_response') {
+        alert('云端 API 返回异常（可能是 API 未启动/502）。请打开 mindmap-api 的 Logs 查看错误并重启部署。');
+        return;
+      }
+      if (msg.includes('Failed to fetch')) {
+        alert('无法连接云端 API（网络/CORS）。请确认 mindmap-api 正常运行，并且 FRONTEND_ORIGIN= https://thoughtnotes.onrender.com 。');
+        return;
+      }
+      alert('登录失败，请重试（可打开浏览器控制台查看错误）');
     }
   };
 
@@ -1260,7 +1276,13 @@ function App() {
       const msg = String(e?.message);
       if (msg === 'username_taken') alert('用户名已存在');
       else if (msg === 'email_taken') alert('邮箱已被注册');
-      else alert('注册失败，请重试');
+      else if (msg === 'missing_api_url')
+        alert('未配置云端 API 地址：请在 Render 的 Static Site 环境变量设置 VITE_API_URL=https://mindmap-api-qcew.onrender.com 并重新部署。');
+      else if (msg === 'bad_response')
+        alert('云端 API 返回异常（可能是 API 未启动/502）。请打开 mindmap-api 的 Logs 查看错误并重启部署。');
+      else if (msg.includes('Failed to fetch'))
+        alert('无法连接云端 API（网络/CORS）。请确认 mindmap-api 正常运行，并且 FRONTEND_ORIGIN= https://thoughtnotes.onrender.com 。');
+      else alert('注册失败，请重试（可打开浏览器控制台查看错误）');
     }
   };
 
@@ -1667,7 +1689,7 @@ function App() {
                 <button
                   className="context-menu-item"
                   onClick={async () => {
-                    await exportFileAsImage(fileMenu.type, fileMenu.id);
+                    await exportFileAsImage(fileMenu.type as 'map' | 'flowchart', fileMenu.id);
                     closeFileMenu();
                   }}
                 >

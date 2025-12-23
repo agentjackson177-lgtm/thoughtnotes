@@ -1,6 +1,15 @@
 import type { UserData, User } from '../types';
 
-const API_URL = (import.meta as any).env?.VITE_API_URL || '';
+const normalizeBase = (u: string) => u.replace(/\/+$/, '');
+
+const envUrl = String((import.meta as any).env?.VITE_API_URL || '').trim();
+// Fallback: if the user didn't set VITE_API_URL on Render yet, infer for your deployed site.
+const inferredUrl =
+  typeof window !== 'undefined' && window.location?.hostname === 'thoughtnotes.onrender.com'
+    ? 'https://mindmap-api-qcew.onrender.com'
+    : '';
+
+const API_URL = normalizeBase(envUrl || inferredUrl);
 
 const getToken = () => localStorage.getItem('auth_token');
 export const setToken = (token: string | null) => {
@@ -9,6 +18,11 @@ export const setToken = (token: string | null) => {
 };
 
 async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+  if (!API_URL) {
+    const err = new Error('missing_api_url');
+    (err as any).status = 0;
+    throw err;
+  }
   const token = getToken();
   const headers = new Headers(init.headers || {});
   headers.set('Content-Type', 'application/json');
@@ -16,7 +30,16 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   const res = await fetch(`${API_URL}${path}`, { ...init, headers });
   const text = await res.text();
-  const json = text ? JSON.parse(text) : null;
+  let json: any = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    // non-JSON response (often HTML 404/502)
+    const err = new Error('bad_response');
+    (err as any).status = res.status;
+    (err as any).raw = text?.slice?.(0, 200) ?? '';
+    throw err;
+  }
   if (!res.ok) {
     const err = new Error(json?.error || `http_${res.status}`);
     (err as any).status = res.status;
