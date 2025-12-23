@@ -1,28 +1,48 @@
 # Render 部署指南
 
-## 部署步骤
+## 部署步骤（云端同步版本）
 
-### 1. 在 Render 创建 Static Site
+### 0. 总览（会创建 3 个资源）
+
+- **Web Service**：`mindmap-api`（Node/Express API）
+- **PostgreSQL**：`mindmap-db`（存账号与所有文件数据）
+- **Static Site**：`mindmap-web`（前端）
+
+> 这样同一账号在不同 PC/手机登录后，会从云端加载并自动同步所有内容。
+
+### 1. 在 Render 创建资源（推荐用 `render.yaml` 一键创建）
 
 1. 登录 [Render](https://render.com)
-2. 点击 **"New +"** → 选择 **"Static Site"**（不是 Web Service！）
-3. 连接你的 GitHub 仓库
+2. 点击 **New + → Blueprint**
+3. 选择你的 GitHub 仓库（包含本项目根目录的 `render.yaml`）
+4. Render 会自动创建：
+   - `mindmap-api`（Web Service）
+   - `mindmap-db`（Postgres）
+   - `mindmap-web`（Static Site）
 
-### 2. 配置设置
+### 2. 配置前端的 API 地址（关键）
 
-在 Render 的配置页面填写：
+Static Site 需要知道 API 的地址。部署完成后：
 
-- **Name**: `mindmap-web`（或你喜欢的名字）
-- **Branch**: `main`（或你的主分支名）
-- **Root Directory**: 留空（或填写 `mindmap-web` 如果项目在子目录）
-- **Build Command**: 
-  ```
-  npm install && npm run build
-  ```
-- **Publish Directory**: 
-  ```
-  dist
-  ```
+1. 打开 `mindmap-api` 的服务页面，复制它的 URL（形如 `https://mindmap-api-xxxx.onrender.com`）
+2. 打开 `mindmap-web` → **Environment** → 添加/更新：
+   - `VITE_API_URL=https://mindmap-api-xxxx.onrender.com`
+3. 重新部署 `mindmap-web`（触发一次新的 build）
+
+### 3. 本地开发（可选）
+
+- 前端：`npm run dev`
+- 后端：
+
+```
+cd server
+npm install
+DATABASE_URL=... JWT_SECRET=dev FRONTEND_ORIGIN=http://localhost:5173 npm run dev
+```
+
+### 4. 旧版说明（仅静态站）已废弃
+
+旧版只用 localStorage，无法跨设备同步。现在必须同时部署 API + DB。
 
 ### 3. 环境变量（可选）
 

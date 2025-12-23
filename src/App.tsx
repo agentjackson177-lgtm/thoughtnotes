@@ -15,6 +15,7 @@ import { calculateNodeDimensions } from './utils/textMeasure';
 import HandwritingEditor, { normalizeHandwritingData } from './components/HandwritingEditor';
 import FlowchartEditor from './components/FlowchartEditor';
 import { exportFlowchartAsPng, exportMindmapAsPng } from './utils/exportImage';
+import { apiGetUserData, apiLogin, apiMe, apiPutUserData, apiRegister, setToken } from './utils/api';
 
 type PositionMap = Record<string, { x: number; y: number; depth: number; width: number; height: number }>;
 type NodeInfo = {
@@ -362,7 +363,8 @@ const setCurrentUser = (user: User | null) => {
 
 function App() {
   // JSON 导入/导出已移除（账号系统下自动保存）
-  const [currentUser, setCurrentUserState] = useState<User | null>(() => getCurrentUser());
+  const [currentUser, setCurrentUserState] = useState<User | null>(null);
+  const [authBooting, setAuthBooting] = useState(true);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [authUsername, setAuthUsername] = useState('');
@@ -402,7 +404,13 @@ function App() {
   const selectionStart = useRef<{ x: number; y: number } | null>(null);
   const canvasShellRef = useRef<HTMLDivElement>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const nodeClickCountRef = useRef<Record<string, { count: number; timer: NodeJS.Timeout | null }>>({});
+  const mindmapClickMetaRef = useRef<Record<string, { lastAt: number; stage: 'idle' | 'focused' | 'selectedAll' }>>(
+    {},
+  );
+  const mindmapArmedEditClickRef = useRef<Record<string, boolean>>({});
+  const mindmapPendingNewNodeEditRef = useRef(false);
+  const [mindmapEditingId, setMindmapEditingId] = useState<string | null>(null);
+  const saveCloudTimerRef = useRef<number | null>(null);
 
   const {
     nodes,
@@ -604,9 +612,13 @@ function App() {
         pasteNode(targetId);
       } else if (e.key === 'Tab') {
         e.preventDefault();
+        // 导图：Tab 新建子节点后，新节点自动进入编辑并全选
+        if (viewMode === 'mindmap') mindmapPendingNewNodeEditRef.current = true;
         addChild(targetId);
       } else if (e.key === 'Enter') {
         e.preventDefault();
+        // 导图：Enter 新建同级后，新节点自动进入编辑并全选
+        if (viewMode === 'mindmap') mindmapPendingNewNodeEditRef.current = true;
         addSibling(targetId);
       } else if (e.code === 'Space' && e.target === document.body) {
         e.preventDefault();
@@ -614,7 +626,30 @@ function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [addChild, addSibling, removeNode, rootId, selectedId, selectedIds, copyNode, pasteNode]);
+  }, [addChild, addSibling, removeNode, rootId, selectedId, selectedIds, copyNode, pasteNode, viewMode]);
+
+  // 导图：Tab/Enter 新建节点后，新节点自动 focus + 全选 + 进入编辑态
+  useEffect(() => {
+    if (viewMode !== 'mindmap') return;
+    if (!mindmapPendingNewNodeEditRef.current) return;
+    if (!selectedId) return;
+    const n = nodes[selectedId];
+    if (!n) return;
+    if (!(n.title === '新节点' || n.title === '同级节点')) return;
+
+    mindmapPendingNewNodeEditRef.current = false;
+    setMindmapEditingId(selectedId);
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const el = document.querySelector<HTMLTextAreaElement>(`textarea.node-text[data-node-id="${selectedId}"]`);
+        if (!el) return;
+        el.focus();
+        const len = el.value.length;
+        el.setSelectionRange(0, len);
+      });
+    });
+  }, [viewMode, selectedId, nodes]);
 
   // 关闭文件右键菜单
   useEffect(() => {
@@ -746,40 +781,66 @@ function App() {
 
   // handleImport 已移除
 
-  // 加载用户数据（防止刷新时被“自动保存”覆盖：未完成加载前不允许保存）
+  // 加载用户数据（云端：从服务端拉取；未完成加载前不允许保存，避免覆盖）
   useEffect(() => {
+    let cancelled = false;
     setIsUserDataLoaded(false);
-    if (currentUser) {
-      const userData = getUserData(currentUser.id);
-      if (userData) {
-        setFolders(userData.folders || []);
-        setMaps(userData.maps || []);
-        setMapStates(userData.mapStates || {});
-        // 兼容旧数据：没有 kind 的文档默认为 text
-        const normalizedDocs = (userData.documents || []).map((d: any) => {
-          const kind = d.kind ?? (d.handwritingData ? 'handwriting' : 'text');
-          const content = typeof d.content === 'string' ? d.content : '';
-          const handwritingData = normalizeHandwritingData(d.handwritingData as HandwritingDocumentData | undefined);
-          return {
-            ...d,
-            kind,
-            content,
-            handwritingData: kind === 'handwriting' ? handwritingData : undefined,
-          } as DocumentMeta;
-        });
-        setDocuments(normalizedDocs);
-        setFlowcharts(userData.flowcharts || []);
-        setFlowchartStates(userData.flowchartStates || {});
-        
-        // 如果有默认导图，加载它
-        if (userData.maps && userData.maps.length > 0) {
-          const defaultMap = userData.maps[0];
-          setCurrentMapId(defaultMap.id);
-          if (userData.mapStates && userData.mapStates[defaultMap.id]) {
-            importData(userData.mapStates[defaultMap.id]);
+    if (!currentUser) {
+      setIsUserDataLoaded(false);
+      return;
+    }
+
+    (async () => {
+      try {
+        const remote = await apiGetUserData();
+        const userData = remote.data;
+
+        if (cancelled) return;
+
+        if (userData) {
+          setFolders(userData.folders || []);
+          setMaps(userData.maps || []);
+          setMapStates(userData.mapStates || {});
+          // 兼容旧数据：没有 kind 的文档默认为 text
+          const normalizedDocs = (userData.documents || []).map((d: any) => {
+            const kind = d.kind ?? (d.handwritingData ? 'handwriting' : 'text');
+            const content = typeof d.content === 'string' ? d.content : '';
+            const handwritingData = normalizeHandwritingData(d.handwritingData as HandwritingDocumentData | undefined);
+            return {
+              ...d,
+              kind,
+              content,
+              handwritingData: kind === 'handwriting' ? handwritingData : undefined,
+            } as DocumentMeta;
+          });
+          setDocuments(normalizedDocs);
+          setFlowcharts(userData.flowcharts || []);
+          setFlowchartStates(userData.flowchartStates || {});
+
+          // 默认打开第一个导图
+          if (userData.maps && userData.maps.length > 0) {
+            const defaultMap = userData.maps[0];
+            setCurrentMapId(defaultMap.id);
+            setViewMode('mindmap');
+            if (userData.mapStates && userData.mapStates[defaultMap.id]) {
+              importData(userData.mapStates[defaultMap.id]);
+            }
+          } else {
+            const defaultState = createInitialState();
+            const defaultMap: MapMeta = {
+              id: 'default',
+              name: '默认导图',
+              folderId: null,
+              updatedAt: Date.now(),
+            };
+            setMaps([defaultMap]);
+            setMapStates({ default: defaultState });
+            setCurrentMapId('default');
+            setViewMode('mindmap');
+            importData(defaultState);
           }
         } else {
-          // 创建默认导图
+          // 新用户：初始化一份默认数据（并在保存 effect 中写回云端）
           const defaultState = createInitialState();
           const defaultMap: MapMeta = {
             id: 'default',
@@ -787,46 +848,58 @@ function App() {
             folderId: null,
             updatedAt: Date.now(),
           };
+          setFolders([]);
           setMaps([defaultMap]);
           setMapStates({ default: defaultState });
+          setDocuments([]);
+          setFlowcharts([]);
+          setFlowchartStates({});
           setCurrentMapId('default');
+          setCurrentDocumentId(null);
+          setCurrentFlowchartId(null);
+          setViewMode('mindmap');
           importData(defaultState);
         }
-      } else {
-        // 新用户，创建默认数据
-        const defaultState = createInitialState();
-        const defaultMap: MapMeta = {
-          id: 'default',
-          name: '默认导图',
-          folderId: null,
-          updatedAt: Date.now(),
-        };
-        setFolders([]);
-        setMaps([defaultMap]);
-        setMapStates({ default: defaultState });
-        setDocuments([]);
-        setCurrentMapId('default');
-        importData(defaultState);
+
+        if (!cancelled) setIsUserDataLoaded(true);
+      } catch (e) {
+        console.error(e);
+        if (!cancelled) {
+          alert('云端数据加载失败，请检查网络或稍后重试');
+          setIsUserDataLoaded(true); // 允许继续使用（但不会同步）
+        }
       }
-      setIsUserDataLoaded(true);
-    } else {
-      setIsUserDataLoaded(false);
-    }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [currentUser, importData]);
 
-  // 保存用户数据
+  // 保存用户数据（云端自动同步：debounce，避免每次小改动都打请求）
   useEffect(() => {
-    if (currentUser && isUserDataLoaded) {
-      const userData: UserData = {
-        folders,
-        maps,
-        mapStates,
-        documents,
-        flowcharts,
-        flowchartStates,
-      };
-      saveUserData(currentUser.id, userData);
-    }
+    if (!currentUser || !isUserDataLoaded) return;
+
+    const userData: UserData = {
+      folders,
+      maps,
+      mapStates,
+      documents,
+      flowcharts,
+      flowchartStates,
+    };
+
+    if (saveCloudTimerRef.current) window.clearTimeout(saveCloudTimerRef.current);
+    saveCloudTimerRef.current = window.setTimeout(() => {
+      apiPutUserData(userData).catch((e) => {
+        console.error(e);
+        // 不打断使用体验：仅在控制台提示
+      });
+    }, 600);
+
+    return () => {
+      if (saveCloudTimerRef.current) window.clearTimeout(saveCloudTimerRef.current);
+    };
   }, [currentUser, isUserDataLoaded, folders, maps, mapStates, documents, flowcharts, flowchartStates]);
 
   useEffect(() => {
@@ -1105,14 +1178,35 @@ function App() {
 
   const currentDocument = documents.find((d) => d.id === currentDocumentId);
 
-  // 登录/注册处理（localStorage 版本：对用户名/邮箱做校验，并校验密码 hash）
+  // 云端登录态恢复：如果本地有 auth_token，就向后端查询当前用户
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const me = await apiMe();
+        if (cancelled) return;
+        setCurrentUserState(me.user);
+      } catch {
+        // token 失效/不存在
+        setToken(null);
+        if (!cancelled) setCurrentUserState(null);
+      } finally {
+        if (!cancelled) setAuthBooting(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // 登录/注册处理（云端版本：账号密码在服务端校验；文件数据存到 Postgres）
   const handleLogin = async () => {
     if (!authUsername || !authPassword) {
-      alert('请输入用户名和密码');
+      alert('请输入用户名/邮箱和密码');
       return;
     }
-    if (!isValidUsername(authUsername)) {
-      alert('用户名格式不正确：3-20 位，只能包含字母/数字/_/-');
+    if (!(isValidUsername(authUsername) || isValidEmail(authUsername))) {
+      alert('请输入正确的用户名（3-20 位，字母/数字/_/-）或邮箱');
       return;
     }
     if (!isValidPassword(authPassword)) {
@@ -1120,27 +1214,19 @@ function App() {
       return;
     }
 
-    const users = getUsers();
-    const stored = users.find((u) => u.username === authUsername);
-    if (!stored) {
-      alert('用户名或密码错误');
-      return;
+    try {
+      const { token, user } = await apiLogin({ usernameOrEmail: authUsername, password: authPassword });
+      setToken(token);
+      setIsUserDataLoaded(false);
+      setCurrentUserState(user);
+      setShowAuthModal(false);
+      setAuthUsername('');
+      setAuthPassword('');
+      setAuthEmail('');
+    } catch (e: any) {
+      if (String(e?.message) === 'invalid_credentials') alert('用户名/邮箱或密码错误');
+      else alert('登录失败，请重试');
     }
-
-    const inputHash = await hashPassword(authPassword, stored.salt);
-    if (inputHash !== stored.passwordHash) {
-      alert('用户名或密码错误');
-      return;
-    }
-
-    const publicUser = toPublicUser(stored);
-    setIsUserDataLoaded(false);
-    setCurrentUserState(publicUser);
-    setCurrentUser(publicUser);
-    setShowAuthModal(false);
-    setAuthUsername('');
-    setAuthPassword('');
-    setAuthEmail('');
   };
 
   const handleRegister = async () => {
@@ -1161,49 +1247,37 @@ function App() {
       return;
     }
 
-    const users = getUsers();
-    if (users.find((u) => u.username === authUsername)) {
-      alert('用户名已存在');
-      return;
+    try {
+      const { token, user } = await apiRegister({ username: authUsername, email: authEmail, password: authPassword });
+      setToken(token);
+      setIsUserDataLoaded(false);
+      setCurrentUserState(user);
+      setShowAuthModal(false);
+      setAuthUsername('');
+      setAuthPassword('');
+      setAuthEmail('');
+    } catch (e: any) {
+      const msg = String(e?.message);
+      if (msg === 'username_taken') alert('用户名已存在');
+      else if (msg === 'email_taken') alert('邮箱已被注册');
+      else alert('注册失败，请重试');
     }
-    if (users.find((u) => u.email === authEmail)) {
-      alert('邮箱已被注册');
-      return;
-    }
-
-    const salt = crypto.randomUUID();
-    const passwordHash = await hashPassword(authPassword, salt);
-    const newUser: StoredUser = {
-      id: crypto.randomUUID(),
-      username: authUsername,
-      email: authEmail,
-      createdAt: Date.now(),
-      salt,
-      passwordHash,
-    };
-
-    saveUsers([...users, newUser]);
-
-    const publicUser = toPublicUser(newUser);
-    setIsUserDataLoaded(false);
-    setCurrentUserState(publicUser);
-    setCurrentUser(publicUser);
-    setShowAuthModal(false);
-    setAuthUsername('');
-    setAuthPassword('');
-    setAuthEmail('');
   };
 
   const handleLogout = () => {
+    setToken(null);
     setCurrentUserState(null);
-    setCurrentUser(null);
     setIsUserDataLoaded(false);
     setFolders([]);
     setMaps([]);
     setMapStates({});
     setDocuments([]);
+    setFlowcharts([]);
+    setFlowchartStates({});
     setCurrentMapId('');
     setCurrentDocumentId(null);
+    setCurrentFlowchartId(null);
+    setViewMode('mindmap');
   };
 
   const positions = layout;
@@ -1219,6 +1293,20 @@ function App() {
   };
 
   const visibleNodes = allNodes.filter((n) => isVisible(n.id));
+
+  // 启动时先恢复云端登录态（避免闪一下登录页）
+  if (authBooting) {
+    return (
+      <div className="app">
+        <div className="auth-container">
+          <div className="auth-card">
+            <h1 className="auth-title">轻量思维导图</h1>
+            <div style={{ textAlign: 'center', color: '#6b7280' }}>正在连接云端...</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // 如果未登录，显示登录界面
   if (!currentUser) {
@@ -1329,12 +1417,12 @@ function App() {
           </>
         ) : (
           <>
-            <button className="button" onClick={() => selectedId && addChild(selectedId)}>
-              子节点 (Tab)
-            </button>
-            <button className="button" onClick={() => selectedId && addSibling(selectedId)}>
-              同级 (Enter)
-            </button>
+        <button className="button" onClick={() => selectedId && addChild(selectedId)}>
+          子节点 (Tab)
+        </button>
+        <button className="button" onClick={() => selectedId && addSibling(selectedId)}>
+          同级 (Enter)
+        </button>
           </>
         )}
         <button
@@ -1788,8 +1876,13 @@ function App() {
                     ) : null}
                   <textarea
                     className="node-text"
+                    data-node-id={node.id}
                     value={node.title}
-                    onChange={(e) => updateTitle(node.id, e.target.value)}
+                    readOnly={mindmapEditingId !== node.id}
+                    onChange={(e) => {
+                      if (mindmapEditingId !== node.id) return;
+                      updateTitle(node.id, e.target.value);
+                    }}
                       draggable={node.id !== rootId}
                       onDragStart={(e) => {
                         // 如果正在编辑文本，不触发拖动
@@ -1817,51 +1910,89 @@ function App() {
                         e.stopPropagation();
                         const textarea = e.target as HTMLTextAreaElement;
                         const nodeId = node.id;
-                        
-                        // 如果已经有焦点且内容已全选，允许正常输入（不处理）
-                        if (document.activeElement === textarea && textarea.selectionStart !== textarea.selectionEnd) {
+
+                        // 正在编辑：允许原生行为（放置光标/拖选文字）
+                        if (mindmapEditingId === nodeId) return;
+
+                        const now = Date.now();
+                        const meta = mindmapClickMetaRef.current[nodeId] ?? { lastAt: 0, stage: 'idle' as const };
+
+                        // 选中节点
+                        setSelectedIds(new Set([nodeId]));
+                        setSelected(nodeId);
+
+                        // 全选后再次单击：进入编辑态
+                        if (meta.stage === 'selectedAll' || mindmapArmedEditClickRef.current[nodeId]) {
+                          meta.stage = 'idle';
+                          meta.lastAt = 0;
+                          mindmapClickMetaRef.current[nodeId] = meta;
+                          mindmapArmedEditClickRef.current[nodeId] = false;
+
+                          e.preventDefault();
+                          setMindmapEditingId(nodeId);
+                          requestAnimationFrame(() => {
+                            const el = document.querySelector<HTMLTextAreaElement>(
+                              `textarea.node-text[data-node-id="${nodeId}"]`,
+                            );
+                            if (!el) return;
+                            el.focus();
+                            const len = el.value.length;
+                            el.setSelectionRange(len, len);
+                          });
                           return;
                         }
-                        
-                        // 如果已经有焦点但内容未全选，可能是第三次点击，允许正常输入
-                        if (document.activeElement === textarea) {
-                          // 不清空选择，允许正常输入
-                          return;
-                        }
-                        
-                        // 阻止默认的 focus 行为
+
+                        // 阻止默认 focus，我们自己控制 focus/selection
                         e.preventDefault();
-                        
-                        // 更新点击计数
-                        if (!nodeClickCountRef.current[nodeId]) {
-                          nodeClickCountRef.current[nodeId] = { count: 0, timer: null };
-                        }
-                        
-                        const clickData = nodeClickCountRef.current[nodeId];
-                        clickData.count++;
-                        
-                        // 清除之前的定时器
-                        if (clickData.timer) {
-                          clearTimeout(clickData.timer);
-                        }
-                        
-                        if (clickData.count === 1) {
-                          // 第一次点击：选中节点，不进入输入状态
-                          setSelectedIds(new Set([nodeId]));
-                          setSelected(nodeId);
-                          
-                          // 设置定时器，如果300ms内没有第二次点击，重置计数
-                          clickData.timer = setTimeout(() => {
-                            clickData.count = 0;
-                          }, 300);
-                        } else if (clickData.count === 2) {
-                          // 第二次点击（双击）：全选内容并进入输入状态
-                          clickData.count = 0;
+
+                        const DOUBLE_CLICK_MS = 250;
+                        const SECOND_CLICK_TO_EDIT_MS = 1200;
+
+                        // 快速双击：全选文本（仍保持只读，不进入输入）
+                        if (meta.stage === 'focused' && now - meta.lastAt <= DOUBLE_CLICK_MS) {
+                          meta.stage = 'selectedAll';
+                          meta.lastAt = 0;
+                          mindmapClickMetaRef.current[nodeId] = meta;
                           textarea.focus();
-                          // 使用 setTimeout 确保 focus 后再全选
                           setTimeout(() => {
-                            textarea.select();
+                            textarea.setSelectionRange(0, textarea.value.length);
                           }, 0);
+                          mindmapArmedEditClickRef.current[nodeId] = true;
+                          setMindmapEditingId(null);
+                          return;
+                        }
+
+                        // 第二次单击（非双击速度）：进入编辑态（不全选）
+                        if (
+                          meta.stage === 'focused' &&
+                          now - meta.lastAt > DOUBLE_CLICK_MS &&
+                          now - meta.lastAt < SECOND_CLICK_TO_EDIT_MS
+                        ) {
+                          meta.stage = 'idle';
+                          meta.lastAt = 0;
+                          mindmapClickMetaRef.current[nodeId] = meta;
+                          setMindmapEditingId(nodeId);
+                          requestAnimationFrame(() => {
+                            const el = document.querySelector<HTMLTextAreaElement>(
+                              `textarea.node-text[data-node-id="${nodeId}"]`,
+                            );
+                            if (!el) return;
+                            el.focus();
+                            const len = el.value.length;
+                            el.setSelectionRange(len, len);
+                          });
+                          return;
+                        }
+
+                        // 第一次单击：只聚焦，不全选，不进入编辑
+                        meta.stage = 'focused';
+                        meta.lastAt = now;
+                        mindmapClickMetaRef.current[nodeId] = meta;
+                        setMindmapEditingId(null);
+                        textarea.focus();
+                        {
+                          const len = textarea.value.length;
+                          textarea.setSelectionRange(len, len);
                         }
                       }}
                       onClick={(e) => {
@@ -1890,6 +2021,9 @@ function App() {
                         setSelectedIds(new Set([node.id]));
                         setSelected(node.id);
                       }}
+                      onBlur={() => {
+                        setMindmapEditingId(null);
+                      }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && !e.shiftKey) {
                           e.preventDefault();
@@ -1899,6 +2033,7 @@ function App() {
                           textarea.blur();
                           setSelectedIds(new Set([node.id]));
                           setSelected(node.id);
+                          setMindmapEditingId(null);
                         }
                       }}
                     rows={1}
