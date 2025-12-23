@@ -58,9 +58,24 @@ const auth = async (req, res, next) => {
 async function runMigrations() {
   const file = path.join(process.cwd(), 'migrations', '001_init.sql');
   const sql = fs.readFileSync(file, 'utf8');
-  await pool.query(sql);
-  // eslint-disable-next-line no-console
-  console.log('[api] migrations ok');
+  try {
+    await pool.query(sql);
+    // eslint-disable-next-line no-console
+    console.log('[api] migrations ok');
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error('[api] failed to connect/run migrations:', e?.message || e);
+    const msg = String(e?.message || '');
+    const code = String(e?.code || '');
+    if (code === 'ENOTFOUND' && msg.includes('dpg-')) {
+      // eslint-disable-next-line no-console
+      console.error(
+        '[api] It looks like you are using Render INTERNAL Postgres hostname (dpg-...). ' +
+          'That hostname only works inside Render. For local dev, use the Postgres EXTERNAL Database URL from Render.',
+      );
+    }
+    process.exit(1);
+  }
 }
 
 app.get('/healthz', (_req, res) => res.json({ ok: true }));

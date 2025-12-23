@@ -3,11 +3,16 @@ import type { UserData, User } from '../types';
 const normalizeBase = (u: string) => u.replace(/\/+$/, '');
 
 const envUrl = String((import.meta as any).env?.VITE_API_URL || '').trim();
-// Fallback: if the user didn't set VITE_API_URL on Render yet, infer for your deployed site.
+// Fallbacks:
+// - Render prod site → use your deployed API
+// - Local dev (vite default) → use local API
 const inferredUrl =
   typeof window !== 'undefined' && window.location?.hostname === 'thoughtnotes.onrender.com'
     ? 'https://mindmap-api-qcew.onrender.com'
-    : '';
+    : typeof window !== 'undefined' &&
+        (window.location?.hostname === 'localhost' || window.location?.hostname === '127.0.0.1')
+      ? 'http://localhost:10000'
+      : '';
 
 const API_URL = normalizeBase(envUrl || inferredUrl);
 

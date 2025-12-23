@@ -592,8 +592,8 @@ function App() {
         return;
       }
       
-      // 如果正在输入框中，只处理 Ctrl/Cmd 快捷键
-      if (isInInput && !(e.metaKey || e.ctrlKey)) {
+      // 如果正在输入框中，只处理 Ctrl/Cmd 快捷键、Tab 和 Enter 键
+      if (isInInput && !(e.metaKey || e.ctrlKey) && e.key !== 'Tab' && e.key !== 'Enter') {
         return;
       }
       
