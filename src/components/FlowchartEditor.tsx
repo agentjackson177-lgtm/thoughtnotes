@@ -229,6 +229,7 @@ export default function FlowchartEditor({ initialState, onUpdate }: Props) {
   const clickMetaRef = useRef<Record<string, { lastAt: number; stage: 'idle' | 'focused' | 'selectedAll' }>>({});
   const pendingNewNodeEditRef = useRef(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const suppressBlurClearRef = useRef(false);
   const armedEditClickRef = useRef<Record<string, boolean>>({});
   const didAutoCenterRef = useRef<Record<string, boolean>>({});
 
@@ -441,10 +442,13 @@ export default function FlowchartEditor({ initialState, onUpdate }: Props) {
     const n = nodes[selectedId];
     if (!n) return;
 
-    // 只对“刚创建的默认标题”自动进入编辑
+    // 只对"刚创建的默认标题"自动进入编辑
     if (!(n.title === '新节点' || n.title === '同级节点')) return;
 
     pendingNewNodeEditRef.current = false;
+    
+    // 短暂抑制 blur 清空编辑态，避免旧节点 blur 时误清
+    suppressBlurClearRef.current = true;
     setEditingId(selectedId);
 
     // 等待本次 render 使 textarea 变为可编辑后，再 focus + 全选
@@ -457,6 +461,10 @@ export default function FlowchartEditor({ initialState, onUpdate }: Props) {
         el.focus();
         const len = el.value.length;
         el.setSelectionRange(0, len);
+        // focus 完成后，允许 blur 清空（但仅清当前节点）
+        setTimeout(() => {
+          suppressBlurClearRef.current = false;
+        }, 50);
       });
     });
   }, [selectedId, nodes]);
@@ -807,31 +815,43 @@ export default function FlowchartEditor({ initialState, onUpdate }: Props) {
                   const textarea = e.target as HTMLTextAreaElement;
                   e.stopPropagation();
 
-                  // 如果当前节点还处于编辑态：单击也应该只“选中”，先强制退出编辑态
-                  if (editingId === node.id) {
+                  const meta = clickMetaRef.current[node.id] ?? { lastAt: 0, stage: 'idle' as const };
+
+                  // 切换到其它节点时：清掉上一个节点的“全选/待编辑”状态，避免回点又自动全选
+                  if (selectedId && selectedId !== node.id) {
+                    const prev = selectedId;
+                    const prevMeta = clickMetaRef.current[prev];
+                    if (prevMeta) clickMetaRef.current[prev] = { ...prevMeta, stage: 'idle', lastAt: 0 };
+                    armedEditClickRef.current[prev] = false;
+                  }
+
+                  // 双击（detail===2）优先：全选 + 直接进入编辑态（打字可直接替换）
+                  if (e.detail === 2) {
                     e.preventDefault();
-                    setEditingId(null);
-                    // 选中节点
+                    meta.stage = 'selectedAll';
+                    meta.lastAt = 0;
+                    clickMetaRef.current[node.id] = meta;
+                    textarea.focus();
+                    setTimeout(() => {
+                      textarea.setSelectionRange(0, textarea.value.length);
+                    }, 0);
+                    armedEditClickRef.current[node.id] = false;
+                    suppressBlurClearRef.current = true;
+                    setEditingId(node.id);
+                    setTimeout(() => {
+                      suppressBlurClearRef.current = false;
+                    }, 50);
+                    return;
+                  }
+
+                  // 编辑态下：允许正常落光标/输入，不要强制退出编辑态
+                  if (editingId === node.id) {
                     setSelectedIdsSafe(new Set([node.id]));
                     setSelected(node.id);
-                    // 聚焦但只读（等待下一次点击进入编辑）
-                    requestAnimationFrame(() => {
-                      const el = document.querySelector<HTMLTextAreaElement>(
-                        `textarea.node-text[data-node-id="${node.id}"]`,
-                      );
-                      if (!el) return;
-                      el.blur();
-                      requestAnimationFrame(() => {
-                        el.focus();
-                        const len = el.value.length;
-                        el.setSelectionRange(len, len);
-                      });
-                    });
                     return;
                   }
 
                   const now = Date.now();
-                  const meta = clickMetaRef.current[node.id] ?? { lastAt: 0, stage: 'idle' as const };
 
                   // 选中节点（所有模式都需要）
                   setSelectedIdsSafe(new Set([node.id]));
@@ -844,18 +864,12 @@ export default function FlowchartEditor({ initialState, onUpdate }: Props) {
                     clickMetaRef.current[node.id] = meta;
                     armedEditClickRef.current[node.id] = false;
 
-                    // 进入编辑态后再 focus（否则当下仍 readOnly，光标难以正确落点）
-                    e.preventDefault();
+                    // 这里不要 preventDefault：让浏览器把光标落到你点击的位置
+                    suppressBlurClearRef.current = true;
                     setEditingId(node.id);
-                    requestAnimationFrame(() => {
-                      const el = document.querySelector<HTMLTextAreaElement>(
-                        `textarea.node-text[data-node-id="${node.id}"]`,
-                      );
-                      if (!el) return;
-                      el.focus();
-                      const len = el.value.length;
-                      el.setSelectionRange(len, len);
-                    });
+                    setTimeout(() => {
+                      suppressBlurClearRef.current = false;
+                    }, 50);
                     return;
                   }
 
@@ -937,8 +951,10 @@ export default function FlowchartEditor({ initialState, onUpdate }: Props) {
                   setSelected(node.id);
                 }}
                 onBlur={() => {
-                  // 结束编辑态
-                  setEditingId(null);
+                  // 只在“当前编辑节点”失焦时退出编辑态
+                  // 避免 Tab/Enter 新建节点时：旧节点 blur 把 editingId 清空，导致新节点又变回只读
+                  if (suppressBlurClearRef.current) return;
+                  setEditingId((cur) => (cur === node.id ? null : cur));
                 }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {

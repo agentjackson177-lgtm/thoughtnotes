@@ -409,6 +409,7 @@ function App() {
   );
   const mindmapArmedEditClickRef = useRef<Record<string, boolean>>({});
   const mindmapPendingNewNodeEditRef = useRef(false);
+  const mindmapSuppressBlurClearRef = useRef(false);
   const [mindmapEditingId, setMindmapEditingId] = useState<string | null>(null);
   const saveCloudTimerRef = useRef<number | null>(null);
 
@@ -676,6 +677,7 @@ function App() {
     if (!(n.title === '新节点' || n.title === '同级节点')) return;
 
     mindmapPendingNewNodeEditRef.current = false;
+    mindmapSuppressBlurClearRef.current = true;
     setMindmapEditingId(selectedId);
 
     requestAnimationFrame(() => {
@@ -685,6 +687,10 @@ function App() {
         el.focus();
         const len = el.value.length;
         el.setSelectionRange(0, len);
+        // focus 完成后，允许 blur 清空（但仅清当前节点）
+        setTimeout(() => {
+          mindmapSuppressBlurClearRef.current = false;
+        }, 50);
       });
     });
   }, [viewMode, selectedId, nodes]);
@@ -1971,29 +1977,44 @@ function App() {
                         const textarea = e.target as HTMLTextAreaElement;
                         const nodeId = node.id;
 
-                        // 如果当前节点还处于编辑态：单击也应该只“选中”，先强制退出编辑态
-                        if (mindmapEditingId === nodeId) {
+                        const now = Date.now();
+                        const meta = mindmapClickMetaRef.current[nodeId] ?? { lastAt: 0, stage: 'idle' as const };
+                        const DOUBLE_CLICK_MS = 250;
+                        const SECOND_CLICK_TO_EDIT_MS = 1200;
+
+                        // 切换到其它节点时：清掉上一个节点的“全选/待编辑”状态，避免回点又自动全选
+                        if (selectedId && selectedId !== nodeId) {
+                          const prev = selectedId;
+                          const prevMeta = mindmapClickMetaRef.current[prev];
+                          if (prevMeta) mindmapClickMetaRef.current[prev] = { ...prevMeta, stage: 'idle', lastAt: 0 };
+                          mindmapArmedEditClickRef.current[prev] = false;
+                        }
+
+                        // 双击（detail===2）优先：全选 + 直接进入编辑态（打字可直接替换）
+                        if (e.detail === 2) {
                           e.preventDefault();
-                          setMindmapEditingId(null);
-                          setSelectedIds(new Set([nodeId]));
-                          setSelected(nodeId);
-                          requestAnimationFrame(() => {
-                            const el = document.querySelector<HTMLTextAreaElement>(
-                              `textarea.node-text[data-node-id="${nodeId}"]`,
-                            );
-                            if (!el) return;
-                            el.blur();
-                            requestAnimationFrame(() => {
-                              el.focus();
-                              const len = el.value.length;
-                              el.setSelectionRange(len, len);
-                            });
-                          });
+                          meta.stage = 'selectedAll';
+                          meta.lastAt = 0;
+                          mindmapClickMetaRef.current[nodeId] = meta;
+                          textarea.focus();
+                          setTimeout(() => {
+                            textarea.setSelectionRange(0, textarea.value.length);
+                          }, 0);
+                          mindmapArmedEditClickRef.current[nodeId] = false;
+                          mindmapSuppressBlurClearRef.current = true;
+                          setMindmapEditingId(nodeId);
+                          setTimeout(() => {
+                            mindmapSuppressBlurClearRef.current = false;
+                          }, 50);
                           return;
                         }
 
-                        const now = Date.now();
-                        const meta = mindmapClickMetaRef.current[nodeId] ?? { lastAt: 0, stage: 'idle' as const };
+                        // 编辑态下：允许正常落光标/输入，不要强制退出编辑态
+                        if (mindmapEditingId === nodeId) {
+                          setSelectedIds(new Set([nodeId]));
+                          setSelected(nodeId);
+                          return;
+                        }
 
                         // 选中节点
                         setSelectedIds(new Set([nodeId]));
@@ -2006,36 +2027,29 @@ function App() {
                           mindmapClickMetaRef.current[nodeId] = meta;
                           mindmapArmedEditClickRef.current[nodeId] = false;
 
-                          e.preventDefault();
+                          // 这里不要 preventDefault：让浏览器把光标落到你点击的位置
+                          mindmapSuppressBlurClearRef.current = true;
                           setMindmapEditingId(nodeId);
-                          requestAnimationFrame(() => {
-                            const el = document.querySelector<HTMLTextAreaElement>(
-                              `textarea.node-text[data-node-id="${nodeId}"]`,
-                            );
-                            if (!el) return;
-                            el.focus();
-                            const len = el.value.length;
-                            el.setSelectionRange(len, len);
-                          });
+                          setTimeout(() => {
+                            mindmapSuppressBlurClearRef.current = false;
+                          }, 50);
                           return;
                         }
 
                         // 阻止默认 focus，我们自己控制 focus/selection
                         e.preventDefault();
 
-                        const DOUBLE_CLICK_MS = 250;
-                        const SECOND_CLICK_TO_EDIT_MS = 1200;
-
-                        // 快速双击：全选文本并进入编辑状态
+                        // 快速双击：全选文本（仍不进入输入状态）
                         if (meta.stage === 'focused' && now - meta.lastAt <= DOUBLE_CLICK_MS) {
                           meta.stage = 'selectedAll';
                           meta.lastAt = 0;
                           mindmapClickMetaRef.current[nodeId] = meta;
-                          setMindmapEditingId(nodeId);
                           textarea.focus();
                           setTimeout(() => {
                             textarea.setSelectionRange(0, textarea.value.length);
                           }, 0);
+                          mindmapArmedEditClickRef.current[nodeId] = true;
+                          setMindmapEditingId(null);
                           return;
                         }
 
@@ -2061,11 +2075,11 @@ function App() {
                           return;
                         }
 
-                        // 第一次单击：聚焦并进入编辑状态，允许删除操作
+                        // 第一次单击：只聚焦（不进入输入态）
                         meta.stage = 'focused';
                         meta.lastAt = now;
                         mindmapClickMetaRef.current[nodeId] = meta;
-                        setMindmapEditingId(nodeId);
+                        setMindmapEditingId(null);
                         textarea.focus();
                         {
                           const len = textarea.value.length;
@@ -2099,7 +2113,10 @@ function App() {
                         setSelected(node.id);
                       }}
                       onBlur={() => {
-                        setMindmapEditingId(null);
+                        // 只在“当前编辑节点”失焦时退出编辑态
+                        // 避免 Tab/Enter 新建节点时：旧节点 blur 把 mindmapEditingId 清空，导致新节点又变回只读
+                        if (mindmapSuppressBlurClearRef.current) return;
+                        setMindmapEditingId((cur) => (cur === node.id ? null : cur));
                       }}
                       onKeyDown={(e) => {
                         // 只有在编辑状态下才处理Enter键
