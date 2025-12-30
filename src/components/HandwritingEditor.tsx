@@ -23,6 +23,7 @@ const getDefaultData = (): HandwritingDocumentData => ({
   background: 'lined',
   color: '#111827',
   baseSize: 4,
+  palmRejection: true,
   pageCount: 1,
   height: PAGE_HEIGHT,
   strokes: [],
@@ -35,6 +36,7 @@ export function normalizeHandwritingData(data: HandwritingDocumentData | undefin
   const background: HandwritingBackground = data.background ?? base.background;
   const color = data.color ?? base.color;
   const baseSize = typeof data.baseSize === 'number' ? data.baseSize : base.baseSize;
+  const palmRejection = typeof data.palmRejection === 'boolean' ? data.palmRejection : base.palmRejection;
   const pageCount = typeof data.pageCount === 'number' && data.pageCount >= 1 ? Math.floor(data.pageCount) : base.pageCount;
   const height = typeof data.height === 'number' && data.height >= PAGE_HEIGHT ? data.height : base.height;
   const strokes = Array.isArray(data.strokes) ? data.strokes : [];
@@ -67,6 +69,7 @@ export function normalizeHandwritingData(data: HandwritingDocumentData | undefin
     background: data.background ?? base.background,
     color,
     baseSize,
+    palmRejection,
     pageCount,
     height,
     strokes: migratedStrokes,
@@ -105,6 +108,7 @@ export default function HandwritingEditor({ value, onChange }: Props) {
   const [baseSize, setBaseSize] = useState<number>(data.baseSize);
   const [background, setBackground] = useState<HandwritingBackground>(data.background);
   const [mode, setMode] = useState<HandwritingCanvasMode>(data.mode);
+  const [palmRejection, setPalmRejection] = useState<boolean>(data.palmRejection ?? true);
   const [pageCount, setPageCount] = useState<number>(data.pageCount);
   const [height, setHeight] = useState<number>(data.height);
 
@@ -112,9 +116,10 @@ export default function HandwritingEditor({ value, onChange }: Props) {
     setBaseSize(data.baseSize);
     setBackground(data.background);
     setMode(data.mode);
+    setPalmRejection(data.palmRejection ?? true);
     setPageCount(data.pageCount);
     setHeight(data.height);
-  }, [data.baseSize, data.background, data.mode, data.pageCount, data.height]);
+  }, [data.baseSize, data.background, data.mode, data.palmRejection, data.pageCount, data.height]);
 
   const getCtx = useCallback(() => {
     const canvas = canvasRef.current;
@@ -216,13 +221,14 @@ export default function HandwritingEditor({ value, onChange }: Props) {
       baseSize !== data.baseSize ||
       background !== data.background ||
       mode !== data.mode ||
+      palmRejection !== (data.palmRejection ?? true) ||
       pageCount !== data.pageCount ||
       height !== data.height
     ) {
-      onChange({ ...data, baseSize, background, mode, pageCount, height });
+      onChange({ ...data, baseSize, background, mode, palmRejection, pageCount, height });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [baseSize, background, mode, pageCount, height]);
+  }, [baseSize, background, mode, palmRejection, pageCount, height]);
 
   const addPointToCurrent = useCallback((pt: HandwritingPoint) => {
     const cur = currentStrokeRef.current;
@@ -233,6 +239,8 @@ export default function HandwritingEditor({ value, onChange }: Props) {
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
       if (e.button !== 0) return;
+      // 防误触：开启后 touch（手指/手掌）不允许落笔，避免缩放/滚动/翻页时误写
+      if (palmRejection && (e as PointerEvent).pointerType === 'touch') return;
       const container = paperRef.current;
       const canvas = canvasRef.current;
       if (!container || !canvas) return;
@@ -252,7 +260,7 @@ export default function HandwritingEditor({ value, onChange }: Props) {
       currentStrokeRef.current = stroke;
       redraw();
     },
-    [baseSize, data.color, logicalHeight, redraw],
+    [baseSize, data.color, logicalHeight, palmRejection, redraw],
   );
 
   const onPointerMove = useCallback(
@@ -340,6 +348,18 @@ export default function HandwritingEditor({ value, onChange }: Props) {
               onChange={(e) => setBaseSize(Number(e.target.value))}
             />
             <span className="hw-value">{baseSize}px</span>
+          </label>
+        </div>
+        <div className="hw-toolbar-group">
+          <label className="hw-label">
+            防误触
+            <input
+              type="checkbox"
+              checked={palmRejection}
+              onChange={(e) => setPalmRejection(e.target.checked)}
+              style={{ marginLeft: 8 }}
+              title="开启后仅手写笔(pen)可书写，手指/手掌(touch)只用于滚动/缩放/翻页"
+            />
           </label>
         </div>
         <div className="hw-toolbar-group">

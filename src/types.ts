@@ -69,6 +69,7 @@ export type HandwritingDocumentData = {
   background: HandwritingBackground;
   color: string;
   baseSize: number; // default pen size
+  palmRejection?: boolean; // 防误触：开启后仅 pen 允许书写（touch 不落笔）
   pageCount: number; // for paged mode
   height: number; // logical px, for infinite mode (and as fallback)
   strokes: HandwritingStroke[];
