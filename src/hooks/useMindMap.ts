@@ -1,6 +1,6 @@
 import { nanoid } from 'nanoid';
 import { create } from 'zustand';
-import { MindMapState } from '../types';
+import { MindMapState, MindNode } from '../types';
 
 export const createInitialState = (): MindMapState => {
   const rootId = nanoid();
@@ -39,10 +39,59 @@ type Actions = {
   moveDown: (id: string) => void;
   copyNode: (id: string) => void;
   pasteNode: (parentId: string) => void;
+  undo: () => void;
+  redo: () => void;
 };
 
-export const useMindMap = create<MindMapState & Actions>((set, get) => ({
+type HistoryState = {
+  _past: MindMapState[];
+  _future: MindMapState[];
+};
+
+const MAX_HISTORY = 80;
+
+const cloneState = (s: MindMapState): MindMapState => ({
+  rootId: s.rootId,
+  selectedId: s.selectedId,
+  scale: s.scale,
+  offset: { x: s.offset.x, y: s.offset.y },
+  nodes: Object.fromEntries(
+    Object.entries(s.nodes).map(([id, n]) => [
+      id,
+      {
+        ...(n as any),
+        children: [...(n.children || [])],
+      },
+    ]),
+  ) as any,
+});
+
+export const useMindMap = create<MindMapState & Actions & HistoryState>((set, get) => ({
   ...createInitialState(),
+  _past: [],
+  _future: [],
+  undo: () =>
+    set((state) => {
+      if (state._past.length === 0) return state;
+      const prev = state._past[state._past.length - 1];
+      const current = cloneState(state);
+      return {
+        ...cloneState(prev),
+        _past: state._past.slice(0, -1),
+        _future: [current, ...state._future].slice(0, MAX_HISTORY),
+      };
+    }),
+  redo: () =>
+    set((state) => {
+      if (state._future.length === 0) return state;
+      const next = state._future[0];
+      const current = cloneState(state);
+      return {
+        ...cloneState(next),
+        _past: [...state._past, current].slice(-MAX_HISTORY),
+        _future: state._future.slice(1),
+      };
+    }),
   setSelected: (id) => set({ selectedId: id }),
   updateTitle: (id, title) =>
     set((state) => ({
@@ -50,6 +99,7 @@ export const useMindMap = create<MindMapState & Actions>((set, get) => ({
     })),
   addChild: (parentId) =>
     set((state) => {
+      const snapshot = cloneState(state);
       const newId = nanoid();
       const parent = state.nodes[parentId];
       const isRoot = parent.parentId === null;
@@ -64,6 +114,8 @@ export const useMindMap = create<MindMapState & Actions>((set, get) => ({
         side,
       };
       return {
+        _past: [...state._past, snapshot].slice(-MAX_HISTORY),
+        _future: [],
         nodes: {
           ...state.nodes,
           [parentId]: {
@@ -79,6 +131,7 @@ export const useMindMap = create<MindMapState & Actions>((set, get) => ({
     set((state) => {
       const node = state.nodes[id];
       if (!node.parentId) return state;
+      const snapshot = cloneState(state);
       const parent = state.nodes[node.parentId];
       const newId = nanoid();
       const newNode = {
@@ -95,6 +148,8 @@ export const useMindMap = create<MindMapState & Actions>((set, get) => ({
       newChildren.splice(currentIndex + 1, 0, newId);
       
       return {
+        _past: [...state._past, snapshot].slice(-MAX_HISTORY),
+        _future: [],
         nodes: {
           ...state.nodes,
           [node.parentId]: {
@@ -109,6 +164,7 @@ export const useMindMap = create<MindMapState & Actions>((set, get) => ({
   removeNode: (id) =>
     set((state) => {
       if (id === state.rootId) return state;
+      const snapshot = cloneState(state);
       const node = state.nodes[id];
       const parent = node.parentId ? state.nodes[node.parentId] : null;
       const nodes = { ...state.nodes };
@@ -124,45 +180,71 @@ export const useMindMap = create<MindMapState & Actions>((set, get) => ({
           children: parent.children.filter((cid) => cid !== id),
         };
       }
-      return { nodes, selectedId: parent?.id ?? state.rootId };
+      return {
+        _past: [...state._past, snapshot].slice(-MAX_HISTORY),
+        _future: [],
+        nodes,
+        selectedId: parent?.id ?? state.rootId,
+      };
     }),
   toggleCollapse: (id) =>
-    set((state) => ({
-      nodes: {
-        ...state.nodes,
-        [id]: { ...state.nodes[id], collapsed: !state.nodes[id].collapsed },
-      },
-    })),
+    set((state) => {
+      const snapshot = cloneState(state);
+      return {
+        _past: [...state._past, snapshot].slice(-MAX_HISTORY),
+        _future: [],
+        nodes: {
+          ...state.nodes,
+          [id]: { ...state.nodes[id], collapsed: !state.nodes[id].collapsed },
+        },
+      };
+    }),
   setScale: (scale) => set({ scale }),
   pan: (dx, dy) =>
     set((state) => ({ offset: { x: state.offset.x + dx, y: state.offset.y + dy } })),
-  importData: (data) => set(() => data),
-  reset: () => set(() => createInitialState()),
+  importData: (data) => set(() => ({ ...data, _past: [], _future: [] })),
+  reset: () => set(() => ({ ...createInitialState(), _past: [], _future: [] })),
   setPriority: (id, value) =>
-    set((state) => ({
-      nodes: { ...state.nodes, [id]: { ...state.nodes[id], priority: value } },
-    })),
+    set((state) => {
+      const snapshot = cloneState(state);
+      return {
+        _past: [...state._past, snapshot].slice(-MAX_HISTORY),
+        _future: [],
+        nodes: { ...state.nodes, [id]: { ...state.nodes[id], priority: value } },
+      };
+    }),
   setProgress: (id, value) =>
-    set((state) => ({
-      nodes: { ...state.nodes, [id]: { ...state.nodes[id], progress: value } },
-    })),
+    set((state) => {
+      const snapshot = cloneState(state);
+      return {
+        _past: [...state._past, snapshot].slice(-MAX_HISTORY),
+        _future: [],
+        nodes: { ...state.nodes, [id]: { ...state.nodes[id], progress: value } },
+      };
+    }),
   setFlowchartChildType: (id, value) =>
     set((state) => {
       const node = state.nodes[id];
       if (!node) return state;
+      const snapshot = cloneState(state);
       const next = { ...node } as any;
       if (value === null) {
         delete next.flowchartChildType;
       } else {
         next.flowchartChildType = value;
       }
-      return { nodes: { ...state.nodes, [id]: next } };
+      return {
+        _past: [...state._past, snapshot].slice(-MAX_HISTORY),
+        _future: [],
+        nodes: { ...state.nodes, [id]: next },
+      };
     }),
   moveNode: (nodeId, newParentId, insertAfterId) =>
     set((state) => {
       const node = state.nodes[nodeId];
       if (!node) return state;
       if (nodeId === state.rootId) return state; // 不能移动根节点
+      const snapshot = cloneState(state);
 
       // 检查不能移动到自己的子节点
       const isDescendant = (id: string, ancestorId: string): boolean => {
@@ -207,18 +289,21 @@ export const useMindMap = create<MindMapState & Actions>((set, get) => ({
         };
       }
 
-      return { nodes };
+      return { _past: [...state._past, snapshot].slice(-MAX_HISTORY), _future: [], nodes };
     }),
   moveUp: (id) =>
     set((state) => {
       const node = state.nodes[id];
       if (!node || !node.parentId) return state;
+      const snapshot = cloneState(state);
       const parent = state.nodes[node.parentId];
       const index = parent.children.indexOf(id);
       if (index <= 0) return state;
       const newChildren = [...parent.children];
       [newChildren[index - 1], newChildren[index]] = [newChildren[index], newChildren[index - 1]];
       return {
+        _past: [...state._past, snapshot].slice(-MAX_HISTORY),
+        _future: [],
         nodes: { ...state.nodes, [node.parentId]: { ...parent, children: newChildren } },
       };
     }),
@@ -226,12 +311,15 @@ export const useMindMap = create<MindMapState & Actions>((set, get) => ({
     set((state) => {
       const node = state.nodes[id];
       if (!node || !node.parentId) return state;
+      const snapshot = cloneState(state);
       const parent = state.nodes[node.parentId];
       const index = parent.children.indexOf(id);
       if (index >= parent.children.length - 1) return state;
       const newChildren = [...parent.children];
       [newChildren[index], newChildren[index + 1]] = [newChildren[index + 1], newChildren[index]];
       return {
+        _past: [...state._past, snapshot].slice(-MAX_HISTORY),
+        _future: [],
         nodes: { ...state.nodes, [node.parentId]: { ...parent, children: newChildren } },
       };
     }),

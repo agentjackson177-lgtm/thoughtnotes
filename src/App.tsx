@@ -436,6 +436,8 @@ function App() {
     copyNode,
     pasteNode,
     setFlowchartChildType,
+    undo,
+    redo,
   } = useMindMap();
 
   const layout = useMemo(() => computeLayout(nodes, rootId), [nodes, rootId]);
@@ -570,6 +572,23 @@ function App() {
     const onKey = (e: KeyboardEvent) => {
       // 如果正在输入框中输入，只处理删除和 Ctrl/Cmd 快捷键
       const isInInput = e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement;
+      const inputEl = isInInput ? (e.target as HTMLTextAreaElement | HTMLInputElement) : null;
+      const isActuallyEditing = !!inputEl && !(inputEl as HTMLTextAreaElement).readOnly;
+
+      // Undo / Redo（不在编辑文本时拦截）
+      if ((e.metaKey || e.ctrlKey) && !isActuallyEditing) {
+        const k = e.key.toLowerCase();
+        if (k === 'z' && !e.shiftKey) {
+          e.preventDefault();
+          undo();
+          return;
+        }
+        if ((k === 'z' && e.shiftKey) || k === 'y') {
+          e.preventDefault();
+          redo();
+          return;
+        }
+      }
       
       if (e.key === 'Backspace' || e.key === 'Delete') {
         // 如果正在输入框中
@@ -1952,8 +1971,26 @@ function App() {
                         const textarea = e.target as HTMLTextAreaElement;
                         const nodeId = node.id;
 
-                        // 正在编辑：允许原生行为（放置光标/拖选文字）
-                        if (mindmapEditingId === nodeId) return;
+                        // 如果当前节点还处于编辑态：单击也应该只“选中”，先强制退出编辑态
+                        if (mindmapEditingId === nodeId) {
+                          e.preventDefault();
+                          setMindmapEditingId(null);
+                          setSelectedIds(new Set([nodeId]));
+                          setSelected(nodeId);
+                          requestAnimationFrame(() => {
+                            const el = document.querySelector<HTMLTextAreaElement>(
+                              `textarea.node-text[data-node-id="${nodeId}"]`,
+                            );
+                            if (!el) return;
+                            el.blur();
+                            requestAnimationFrame(() => {
+                              el.focus();
+                              const len = el.value.length;
+                              el.setSelectionRange(len, len);
+                            });
+                          });
+                          return;
+                        }
 
                         const now = Date.now();
                         const meta = mindmapClickMetaRef.current[nodeId] ?? { lastAt: 0, stage: 'idle' as const };

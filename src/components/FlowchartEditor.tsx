@@ -203,6 +203,8 @@ export default function FlowchartEditor({ initialState, onUpdate }: Props) {
     setProgress,
     moveNode,
     importData,
+    undo,
+    redo,
   } = useMindMap();
 
   // 初始化状态
@@ -372,6 +374,21 @@ export default function FlowchartEditor({ initialState, onUpdate }: Props) {
       // 只有在“真正可编辑”时，才把 Delete/Backspace 交给文本处理。
       // 当 textarea 处于只读（未进入编辑态）时，Delete 应该删除节点。
       const isActuallyEditing = !!inputEl && !(inputEl as HTMLTextAreaElement).readOnly;
+
+      // Undo / Redo（不在编辑文本时拦截）
+      if ((e.metaKey || e.ctrlKey) && !isActuallyEditing) {
+        const k = e.key.toLowerCase();
+        if (k === 'z' && !e.shiftKey) {
+          e.preventDefault();
+          undo();
+          return;
+        }
+        if ((k === 'z' && e.shiftKey) || k === 'y') {
+          e.preventDefault();
+          redo();
+          return;
+        }
+      }
       
       if (e.key === 'Backspace' || e.key === 'Delete') {
         // 正在编辑文本时：不删除节点
@@ -790,8 +807,28 @@ export default function FlowchartEditor({ initialState, onUpdate }: Props) {
                   const textarea = e.target as HTMLTextAreaElement;
                   e.stopPropagation();
 
-                  // 正在编辑：允许原生行为（放置光标/拖选文字）
-                  if (editingId === node.id) return;
+                  // 如果当前节点还处于编辑态：单击也应该只“选中”，先强制退出编辑态
+                  if (editingId === node.id) {
+                    e.preventDefault();
+                    setEditingId(null);
+                    // 选中节点
+                    setSelectedIdsSafe(new Set([node.id]));
+                    setSelected(node.id);
+                    // 聚焦但只读（等待下一次点击进入编辑）
+                    requestAnimationFrame(() => {
+                      const el = document.querySelector<HTMLTextAreaElement>(
+                        `textarea.node-text[data-node-id="${node.id}"]`,
+                      );
+                      if (!el) return;
+                      el.blur();
+                      requestAnimationFrame(() => {
+                        el.focus();
+                        const len = el.value.length;
+                        el.setSelectionRange(len, len);
+                      });
+                    });
+                    return;
+                  }
 
                   const now = Date.now();
                   const meta = clickMetaRef.current[node.id] ?? { lastAt: 0, stage: 'idle' as const };
