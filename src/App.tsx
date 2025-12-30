@@ -631,7 +631,12 @@ function App() {
         return;
       }
       
-      // 如果正在输入框中，只处理 Ctrl/Cmd 快捷键、Tab 和 Enter 键
+      // 如果正在“真正编辑文字”(readOnly=false)：不要触发新建节点等全局快捷键，让输入框自己处理
+      if (isActuallyEditing && !(e.metaKey || e.ctrlKey)) {
+        return;
+      }
+
+      // 如果正在输入框中（但只读状态）：只处理 Ctrl/Cmd 快捷键、Tab 和 Enter 键
       if (isInInput && !(e.metaKey || e.ctrlKey) && e.key !== 'Tab' && e.key !== 'Enter') {
         return;
       }
@@ -2123,11 +2128,13 @@ function App() {
                         if (mindmapEditingId === node.id) {
                           if (e.key === 'Enter' && !e.shiftKey) {
                             e.preventDefault();
+                            e.stopPropagation();
                             // 结束输入并选中当前输入框
                             const textarea = e.target as HTMLTextAreaElement;
                             textarea.blur();
                             setMindmapEditingId(null);
-                            // 不阻止事件冒泡，让窗口级别的键盘事件监听器处理Enter键
+                            setSelectedIds(new Set([node.id]));
+                            setSelected(node.id);
                           }
                         }
                         // 对于只读状态，不做任何处理，让键盘事件传递给窗口监听器
