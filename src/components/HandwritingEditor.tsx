@@ -115,7 +115,6 @@ export default function HandwritingEditor({ value, onChange }: Props) {
   const [palmRejection, setPalmRejection] = useState<boolean>(data.palmRejection ?? true);
   const [pageCount, setPageCount] = useState<number>(data.pageCount);
   const [height, setHeight] = useState<number>(data.height);
-  const [zoomPct, setZoomPct] = useState<number>(100);
   const [scrollY, setScrollY] = useState<number>(0);
   const [scrollYMax, setScrollYMax] = useState<number>(0);
 
@@ -127,8 +126,6 @@ export default function HandwritingEditor({ value, onChange }: Props) {
     setPageCount(data.pageCount);
     setHeight(data.height);
   }, [data.baseSize, data.background, data.mode, data.palmRejection, data.pageCount, data.height]);
-
-  const zoom = useMemo(() => clamp(zoomPct / 100, 0.5, 2), [zoomPct]);
 
   const getCtx = useCallback(() => {
     const canvas = canvasRef.current;
@@ -312,7 +309,7 @@ export default function HandwritingEditor({ value, onChange }: Props) {
     // next frame to let DOM/ResizeObserver settle
     const id = window.requestAnimationFrame(() => syncScrollMetrics());
     return () => window.cancelAnimationFrame(id);
-  }, [logicalHeight, syncScrollMetrics, zoom]);
+  }, [logicalHeight, syncScrollMetrics]);
 
   // Persist setting changes
   useEffect(() => {
@@ -527,24 +524,6 @@ export default function HandwritingEditor({ value, onChange }: Props) {
       </div>
 
       <div className="hw-stage">
-        <div className="hw-zoom-bar">
-          <label className="hw-label">
-            缩放
-            <input
-              className="hw-slider hw-zoom-slider"
-              type="range"
-              min={50}
-              max={200}
-              value={zoomPct}
-              onChange={(e) => setZoomPct(Number(e.target.value))}
-            />
-            <span className="hw-value">{zoomPct}%</span>
-          </label>
-          <button className="button" onClick={() => setZoomPct(100)} title="缩放重置为 100%">
-            复位
-          </button>
-        </div>
-
         <div className="hw-pan-y" aria-label="上下移动画布">
           <input
             className="hw-slider hw-slider-vertical"
@@ -567,7 +546,7 @@ export default function HandwritingEditor({ value, onChange }: Props) {
           <div
             ref={paperRef}
             className={`hw-paper ${background === 'lined' ? 'lined' : 'blank'}`}
-            style={{ width: `${zoom * 100}%`, ['--hw-zoom' as any]: zoom } as React.CSSProperties}
+            style={{ width: '100%', ['--hw-zoom' as any]: 1 } as React.CSSProperties}
           >
             <canvas
               ref={canvasRef}

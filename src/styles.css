@@ -8,11 +8,9 @@
 
 /* handwriting-zoom-pan */
 .hw-stage{position:relative;flex:1;overflow:hidden}
-.hw-zoom-bar{position:absolute;top:0;left:0;right:0;height:44px;display:flex;align-items:center;gap:12px;padding:8px 16px;background:rgba(255,255,255,.92);border-bottom:1px solid #e3e7ef;backdrop-filter:blur(8px);z-index:5}
-.hw-zoom-slider{width:220px}
-.hw-pan-y{position:absolute;top:52px;right:10px;bottom:14px;width:32px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.84);border:1px solid #e3e7ef;border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,.07);z-index:5}
+.hw-pan-y{position:absolute;top:10px;right:10px;bottom:14px;width:32px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.84);border:1px solid #e3e7ef;border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,.07);z-index:5}
 .hw-slider-vertical{width:18px;height:100%;-webkit-appearance:slider-vertical;appearance:slider-vertical;writing-mode:bt-lr}
-.hw-paper-scroll{height:100%;overflow:auto;padding-top:52px;padding-right:52px;scrollbar-width:none}
+.hw-paper-scroll{height:100%;overflow:auto;padding-top:0;padding-right:52px;scrollbar-width:none}
 .hw-paper-scroll::-webkit-scrollbar{width:0;height:0}
 .hw-paper.lined{background:repeating-linear-gradient(to bottom,#fff 0,#fff calc(28px * var(--hw-zoom, 1)),#3b82f62e calc(28px * var(--hw-zoom, 1)),#fff calc(30px * var(--hw-zoom, 1)))}
 .hw-paper{min-width:320px}
