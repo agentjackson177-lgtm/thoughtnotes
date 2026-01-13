@@ -394,6 +394,7 @@ function App() {
         id: string;
       }
   >(null);
+  const [folderContextMenu, setFolderContextMenu] = useState<null | { x: number; y: number; folderId: string }>(null);
   const [moveDialog, setMoveDialog] = useState<null | { type: 'map' | 'document' | 'flowchart'; id: string }>(null);
   const [moveDialogTarget, setMoveDialogTarget] = useState<string>('root');
   const isPanning = useRef(false);
@@ -704,8 +705,14 @@ function App() {
 
   // 关闭文件右键菜单
   useEffect(() => {
-    const onClick = () => closeFileMenu();
-    const onContext = () => closeFileMenu();
+    const onClick = () => {
+      closeFileMenu();
+      setFolderContextMenu(null);
+    };
+    const onContext = () => {
+      closeFileMenu();
+      setFolderContextMenu(null);
+    };
     window.addEventListener('click', onClick);
     window.addEventListener('contextmenu', onContext);
     return () => {
@@ -974,6 +981,16 @@ function App() {
     const name = window.prompt('新建文件夹名称');
     if (!name) return;
     setFolders((prev) => [...prev, { id: crypto.randomUUID(), name, parentId: null }]);
+  };
+
+  const renameFolder = (id: string) => {
+    const f = folders.find((x) => x.id === id);
+    if (!f) return;
+    const name = window.prompt('重命名文件夹', f.name);
+    if (!name) return;
+    const nextName = name.trim();
+    if (!nextName) return;
+    setFolders((prev) => prev.map((x) => (x.id === id ? { ...x, name: nextName } : x)));
   };
 
   const handleCreateMap = (folderId: string | null) => {
@@ -1587,26 +1604,6 @@ function App() {
               <button className="icon-btn" onClick={handleCreateFolder} title="新建文件夹">
                 📁+
               </button>
-              <button className="icon-btn" onClick={() => handleCreateMap(null)} title="新建导图">
-                🗺️+
-              </button>
-              <button className="icon-btn" onClick={() => handleCreateDocument(null)} title="新建文档">
-                📄+
-              </button>
-              <button
-                className="icon-btn"
-                onClick={() => handleCreateHandwritingDocument(null)}
-                title="新建手写文档"
-              >
-                ✍️+
-              </button>
-              <button
-                className="icon-btn"
-                onClick={() => handleCreateFlowchart(null)}
-                title="新建流程图"
-              >
-                🔀+
-              </button>
             </div>
           </div>
           <div className="folder-section">
@@ -1683,7 +1680,21 @@ function App() {
           {folders.map((folder) => (
             <div key={folder.id} className="folder-section">
               <div className="folder-row">
-                <span>📁 {folder.name}</span>
+                <span
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    renameFolder(folder.id);
+                  }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setFolderContextMenu({ x: e.clientX, y: e.clientY, folderId: folder.id });
+                  }}
+                  title="双击或右键改名"
+                  style={{ cursor: 'default' }}
+                >
+                  📁 {folder.name}
+                </span>
                 <div>
                   <button className="link-btn" onClick={() => handleCreateMap(folder.id)}>
                     新建导图
@@ -1808,6 +1819,24 @@ function App() {
               }}
             >
               删除
+            </button>
+          </div>
+        )}
+
+        {folderContextMenu && (
+          <div
+            className="context-menu"
+            style={{ left: `${folderContextMenu.x}px`, top: `${folderContextMenu.y}px` }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              className="context-menu-item"
+              onClick={() => {
+                renameFolder(folderContextMenu.folderId);
+                setFolderContextMenu(null);
+              }}
+            >
+              改名
             </button>
           </div>
         )}

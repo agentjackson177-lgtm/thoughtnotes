@@ -105,6 +105,9 @@ export default function HandwritingEditor({ value, onChange }: Props) {
   const drawingPointerId = useRef<number | null>(null);
   const currentStrokeRef = useRef<HandwritingStroke | null>(null);
   const redoStackRef = useRef<HandwritingStroke[]>([]);
+  // Perf: draw current stroke incrementally (only the new segment) and throttle to rAF
+  const drawRafRef = useRef<number | null>(null);
+  const lastDrawnIndexRef = useRef<number>(0);
 
   const [baseSize, setBaseSize] = useState<number>(data.baseSize);
   const [background, setBackground] = useState<HandwritingBackground>(data.background);
@@ -149,7 +152,8 @@ export default function HandwritingEditor({ value, onChange }: Props) {
     const scale = rect.width / LOGICAL_WIDTH;
     const cssHeight = logicalHeight * scale;
     container.style.height = `${cssHeight}px`;
-    const dpr = window.devicePixelRatio || 1;
+    // Cap DPR to avoid huge backing store at high zoom (major lag on draw)
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
     canvas.width = Math.max(1, Math.floor(rect.width * dpr));
     canvas.height = Math.max(1, Math.floor(cssHeight * dpr));
     canvas.style.width = `${rect.width}px`;
@@ -198,11 +202,60 @@ export default function HandwritingEditor({ value, onChange }: Props) {
     const container = paperRef.current;
     if (!ctx || !container) return;
     const rect = container.getBoundingClientRect();
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
     // canvas height is controlled via resizeCanvas; clear by canvas css size
-    ctx.clearRect(0, 0, rect.width, (canvasRef.current?.height ?? rect.height) / (window.devicePixelRatio || 1));
+    ctx.clearRect(0, 0, rect.width, (canvasRef.current?.height ?? rect.height) / dpr);
     data.strokes.forEach(drawStroke);
     if (currentStrokeRef.current) drawStroke(currentStrokeRef.current);
   }, [data.strokes, drawStroke, getCtx]);
+
+  const drawCurrentStrokeIncremental = useCallback(() => {
+    drawRafRef.current = null;
+    const stroke = currentStrokeRef.current;
+    const container = paperRef.current;
+    const ctx = getCtx();
+    if (!stroke || !container || !ctx) return;
+    if (stroke.points.length < 2) return;
+
+    const rect = container.getBoundingClientRect();
+    const scale = rect.width / LOGICAL_WIDTH;
+
+    ctx.strokeStyle = stroke.color;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    // draw segments from lastDrawnIndex -> end
+    let i = Math.max(1, lastDrawnIndexRef.current);
+    const pts = stroke.points;
+    while (i < pts.length) {
+      const a = pts[i - 1];
+      const b = pts[i];
+      const ax = a.x * scale;
+      const ay = a.y * scale;
+      const bx = b.x * scale;
+      const by = b.y * scale;
+      const pressure = (a.p + b.p) / 2;
+      const w = stroke.baseSize * (0.3 + 0.7 * pressure);
+      ctx.lineWidth = w;
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(bx, by);
+      ctx.stroke();
+      i++;
+    }
+    lastDrawnIndexRef.current = i;
+  }, [getCtx]);
+
+  const scheduleIncrementalDraw = useCallback(() => {
+    if (drawRafRef.current) return;
+    drawRafRef.current = window.requestAnimationFrame(drawCurrentStrokeIncremental);
+  }, [drawCurrentStrokeIncremental]);
+
+  useEffect(() => {
+    return () => {
+      if (drawRafRef.current) window.cancelAnimationFrame(drawRafRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     resizeCanvas();
@@ -304,9 +357,9 @@ export default function HandwritingEditor({ value, onChange }: Props) {
         points: [{ x, y, p }],
       };
       currentStrokeRef.current = stroke;
-      redraw();
+      lastDrawnIndexRef.current = 1; // next segment starts from point[0] -> point[1]
     },
-    [baseSize, data.color, logicalHeight, palmRejection, redraw],
+    [baseSize, data.color, logicalHeight, palmRejection],
   );
 
   const onPointerMove = useCallback(
@@ -323,15 +376,20 @@ export default function HandwritingEditor({ value, onChange }: Props) {
         setHeight(nextHeight);
       }
       addPointToCurrent({ x, y, p });
-      redraw();
+      scheduleIncrementalDraw();
     },
-    [addPointToCurrent, height, logicalHeight, mode, redraw],
+    [addPointToCurrent, height, logicalHeight, mode, scheduleIncrementalDraw],
   );
 
   const endStroke = useCallback(() => {
     const stroke = currentStrokeRef.current;
     currentStrokeRef.current = null;
     drawingPointerId.current = null;
+    lastDrawnIndexRef.current = 0;
+    if (drawRafRef.current) {
+      window.cancelAnimationFrame(drawRafRef.current);
+      drawRafRef.current = null;
+    }
     if (!stroke || stroke.points.length < 2) {
       redraw();
       return;
@@ -354,6 +412,11 @@ export default function HandwritingEditor({ value, onChange }: Props) {
       if (drawingPointerId.current !== e.pointerId) return;
       currentStrokeRef.current = null;
       drawingPointerId.current = null;
+      lastDrawnIndexRef.current = 0;
+      if (drawRafRef.current) {
+        window.cancelAnimationFrame(drawRafRef.current);
+        drawRafRef.current = null;
+      }
       redraw();
     },
     [redraw],
