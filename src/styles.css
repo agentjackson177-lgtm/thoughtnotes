@@ -14,3 +14,22 @@
 .hw-paper-scroll::-webkit-scrollbar{width:0;height:0}
 .hw-paper.lined{background:repeating-linear-gradient(to bottom,#fff 0,#fff calc(28px * var(--hw-zoom, 1)),#3b82f62e calc(28px * var(--hw-zoom, 1)),#fff calc(30px * var(--hw-zoom, 1)))}
 .hw-paper{min-width:320px}
+
+/* document-header-inline */
+.document-header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.document-title{margin:0;min-width:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.document-meta{margin-left:auto;white-space:nowrap}
+
+/* folder-row-layout */
+.folder-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.folder-row>span{white-space:nowrap}
+
+/* folder-row-two-line */
+.folder-row{display:flex;flex-direction:column;align-items:stretch;gap:6px}
+.folder-row-title{display:flex;align-items:center;justify-content:flex-start;min-width:0;text-align:left}
+.folder-row-title>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%;text-align:left}
+.folder-row-actions{display:flex;gap:12px;flex-wrap:wrap;justify-content:flex-start;min-width:0}
+
+/* sidebar-header-min */
+.sidebar-header{justify-content:flex-start}
+

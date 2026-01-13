@@ -397,6 +397,8 @@ function App() {
   const [folderContextMenu, setFolderContextMenu] = useState<null | { x: number; y: number; folderId: string }>(null);
   const [moveDialog, setMoveDialog] = useState<null | { type: 'map' | 'document' | 'flowchart'; id: string }>(null);
   const [moveDialogTarget, setMoveDialogTarget] = useState<string>('root');
+  const [defaultFolderName, setDefaultFolderName] = useState<string>('默认');
+  const [defaultFolderDeleted, setDefaultFolderDeleted] = useState<boolean>(false);
   const isPanning = useRef(false);
   const lastPoint = useRef<{ x: number; y: number } | null>(null);
   const draggingNodeId = useRef<string | null>(null);
@@ -856,6 +858,8 @@ function App() {
         if (cancelled) return;
 
         if (userData) {
+          setDefaultFolderName(userData.ui?.defaultFolderName || '默认');
+          setDefaultFolderDeleted(!!userData.ui?.defaultFolderDeleted);
           setFolders(userData.folders || []);
           setMaps(userData.maps || []);
           setMapStates(userData.mapStates || {});
@@ -917,6 +921,8 @@ function App() {
           setCurrentFlowchartId(null);
           setViewMode('mindmap');
           importData(defaultState);
+          setDefaultFolderName('默认');
+          setDefaultFolderDeleted(false);
         }
 
         if (!cancelled) setIsUserDataLoaded(true);
@@ -945,6 +951,7 @@ function App() {
       documents,
       flowcharts,
       flowchartStates,
+      ui: { defaultFolderName, defaultFolderDeleted },
     };
 
     if (saveCloudTimerRef.current) window.clearTimeout(saveCloudTimerRef.current);
@@ -991,6 +998,37 @@ function App() {
     const nextName = name.trim();
     if (!nextName) return;
     setFolders((prev) => prev.map((x) => (x.id === id ? { ...x, name: nextName } : x)));
+  };
+
+  const DEFAULT_FOLDER_MENU_ID = '__default_folder__';
+  const renameDefaultFolder = () => {
+    const name = window.prompt('重命名文件夹', defaultFolderName);
+    if (!name) return;
+    const next = name.trim();
+    if (!next) return;
+    setDefaultFolderName(next);
+    setDefaultFolderDeleted(false);
+  };
+  const deleteDefaultFolder = () => {
+    const ok = window.confirm('确定删除「默认」文件夹？\n不会删除文件内容，文件仍保留在根目录。');
+    if (!ok) return;
+    setDefaultFolderDeleted(true);
+  };
+
+  const deleteFolder = (id: string) => {
+    const f = folders.find((x) => x.id === id);
+    if (!f) return;
+    const ok = window.confirm(`确定删除文件夹「${f.name}」？\n文件不会丢失，都会移动到「默认」文件夹（根目录）。`);
+    if (!ok) return;
+    // Move all items to root to avoid orphaned folderId
+    setMaps((prev) => prev.map((m) => (m.folderId === id ? { ...m, folderId: null, updatedAt: Date.now() } : m)));
+    setDocuments((prev) =>
+      prev.map((d) => (d.folderId === id ? { ...d, folderId: null, updatedAt: Date.now() } : d)),
+    );
+    setFlowcharts((prev) =>
+      prev.map((c) => (c.folderId === id ? { ...c, folderId: null, updatedAt: Date.now() } : c)),
+    );
+    setFolders((prev) => prev.filter((x) => x.id !== id));
   };
 
   const handleCreateMap = (folderId: string | null) => {
@@ -1050,9 +1088,6 @@ function App() {
   const handleCreateHandwritingDocument = (folderId: string | null) => {
     const name = window.prompt('新建手写文档名称');
     if (!name) return;
-    const modeInput = window.prompt('选择画布模式：输入 1=无限画布；2=分页笔记', '1');
-    if (!modeInput) return;
-    const mode = modeInput.trim() === '2' ? 'paged' : 'infinite';
     const id = crypto.randomUUID();
     const baseHw = normalizeHandwritingData(undefined);
     const newDoc: DocumentMeta = {
@@ -1064,7 +1099,7 @@ function App() {
       content: '',
       handwritingData: {
         ...baseHw,
-        mode,
+        mode: 'paged',
         pageCount: 1,
         height: baseHw.height,
       },
@@ -1599,29 +1634,54 @@ function App() {
       <div className="main">
         <aside className="sidebar">
           <div className="sidebar-header">
-            <div className="sidebar-title">文件</div>
-            <div className="sidebar-actions">
-              <button className="icon-btn" onClick={handleCreateFolder} title="新建文件夹">
-                📁+
-              </button>
-            </div>
+            <button className="icon-btn" onClick={handleCreateFolder} title="新建文件夹">
+              📁+
+            </button>
           </div>
           <div className="folder-section">
             <div className="folder-row">
-              <div>
-              <button className="link-btn" onClick={() => handleCreateMap(null)}>
-                新建导图
-              </button>
-                <button className="link-btn" onClick={() => handleCreateDocument(null)}>
-                  新建文档
-                </button>
-                <button className="link-btn" onClick={() => handleCreateHandwritingDocument(null)}>
-                  新建手写
-                </button>
-                <button className="link-btn" onClick={() => handleCreateFlowchart(null)}>
-                  新建流程图
-              </button>
+              <div className="folder-row-title">
+                <span
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    if (!defaultFolderDeleted) renameDefaultFolder();
+                  }}
+                  title={defaultFolderDeleted ? '已删除默认文件夹' : '双击改名'}
+                  style={{ cursor: 'default', opacity: defaultFolderDeleted ? 0.7 : 1 }}
+                >
+                  {defaultFolderDeleted ? '📂 根目录' : `📁 ${defaultFolderName}`}
+                </span>
+                {!defaultFolderDeleted && (
+                  <button
+                    className="icon-btn"
+                    title="文件夹菜单"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setFolderContextMenu({ x: e.clientX, y: e.clientY, folderId: DEFAULT_FOLDER_MENU_ID });
+                    }}
+                    style={{ padding: '2px 6px', fontSize: 12 }}
+                  >
+                    ≡
+                  </button>
+                )}
               </div>
+              {!defaultFolderDeleted && (
+                <div className="folder-row-actions">
+                  <button className="link-btn" onClick={() => handleCreateMap(null)}>
+                    新建导图
+                  </button>
+                  <button className="link-btn" onClick={() => handleCreateDocument(null)}>
+                    新建文档
+                  </button>
+                  <button className="link-btn" onClick={() => handleCreateHandwritingDocument(null)}>
+                    新建手写
+                  </button>
+                  <button className="link-btn" onClick={() => handleCreateFlowchart(null)}>
+                    新建流程图
+                  </button>
+                </div>
+              )}
             </div>
             {maps
               .filter((m) => m.folderId === null)
@@ -1680,22 +1740,31 @@ function App() {
           {folders.map((folder) => (
             <div key={folder.id} className="folder-section">
               <div className="folder-row">
-                <span
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    renameFolder(folder.id);
-                  }}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setFolderContextMenu({ x: e.clientX, y: e.clientY, folderId: folder.id });
-                  }}
-                  title="双击或右键改名"
-                  style={{ cursor: 'default' }}
-                >
-                  📁 {folder.name}
-                </span>
-                <div>
+                <div className="folder-row-title">
+                  <span
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      renameFolder(folder.id);
+                    }}
+                    title="双击改名"
+                    style={{ cursor: 'default' }}
+                  >
+                    📁 {folder.name}
+                  </span>
+                  <button
+                    className="icon-btn"
+                    title="文件夹菜单"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setFolderContextMenu({ x: e.clientX, y: e.clientY, folderId: folder.id });
+                    }}
+                    style={{ padding: '2px 6px', fontSize: 12 }}
+                  >
+                    ≡
+                  </button>
+                </div>
+                <div className="folder-row-actions">
                   <button className="link-btn" onClick={() => handleCreateMap(folder.id)}>
                     新建导图
                   </button>
@@ -1829,15 +1898,51 @@ function App() {
             style={{ left: `${folderContextMenu.x}px`, top: `${folderContextMenu.y}px` }}
             onClick={(e) => e.stopPropagation()}
           >
-            <button
-              className="context-menu-item"
-              onClick={() => {
-                renameFolder(folderContextMenu.folderId);
-                setFolderContextMenu(null);
-              }}
-            >
-              改名
-            </button>
+            {folderContextMenu.folderId === DEFAULT_FOLDER_MENU_ID ? (
+              <>
+                <button
+                  className="context-menu-item"
+                  onClick={() => {
+                    renameDefaultFolder();
+                    setFolderContextMenu(null);
+                  }}
+                >
+                  改名
+                </button>
+                <div className="context-menu-divider" />
+                <button
+                  className="context-menu-item danger"
+                  onClick={() => {
+                    deleteDefaultFolder();
+                    setFolderContextMenu(null);
+                  }}
+                >
+                  删除文件夹
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  className="context-menu-item"
+                  onClick={() => {
+                    renameFolder(folderContextMenu.folderId);
+                    setFolderContextMenu(null);
+                  }}
+                >
+                  改名
+                </button>
+                <div className="context-menu-divider" />
+                <button
+                  className="context-menu-item danger"
+                  onClick={() => {
+                    deleteFolder(folderContextMenu.folderId);
+                    setFolderContextMenu(null);
+                  }}
+                >
+                  删除文件夹
+                </button>
+              </>
+            )}
           </div>
         )}
 

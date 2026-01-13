@@ -19,7 +19,7 @@ const PAGE_HEIGHT = 1400;
 const INFINITE_GROW_THRESHOLD = 220;
 
 const getDefaultData = (): HandwritingDocumentData => ({
-  mode: 'infinite',
+  mode: 'paged',
   background: 'lined',
   color: '#111827',
   baseSize: 4,
@@ -32,11 +32,13 @@ const getDefaultData = (): HandwritingDocumentData => ({
 export function normalizeHandwritingData(data: HandwritingDocumentData | undefined): HandwritingDocumentData {
   const base = getDefaultData();
   if (!data) return base;
-  const mode: HandwritingCanvasMode = data.mode ?? base.mode;
+  // 强制默认：分页向下
+  const mode: HandwritingCanvasMode = 'paged';
   const background: HandwritingBackground = data.background ?? base.background;
   const color = data.color ?? base.color;
   const baseSize = typeof data.baseSize === 'number' ? data.baseSize : base.baseSize;
-  const palmRejection = typeof data.palmRejection === 'boolean' ? data.palmRejection : base.palmRejection;
+  // 强制默认：防误触开启
+  const palmRejection = true;
   const pageCount = typeof data.pageCount === 'number' && data.pageCount >= 1 ? Math.floor(data.pageCount) : base.pageCount;
   const height = typeof data.height === 'number' && data.height >= PAGE_HEIGHT ? data.height : base.height;
   const strokes = Array.isArray(data.strokes) ? data.strokes : [];
@@ -121,8 +123,8 @@ export default function HandwritingEditor({ value, onChange }: Props) {
   useEffect(() => {
     setBaseSize(data.baseSize);
     setBackground(data.background);
-    setMode(data.mode);
-    setPalmRejection(data.palmRejection ?? true);
+    setMode('paged');
+    setPalmRejection(true);
     setPageCount(data.pageCount);
     setHeight(data.height);
   }, [data.baseSize, data.background, data.mode, data.palmRejection, data.pageCount, data.height]);
@@ -454,39 +456,6 @@ export default function HandwritingEditor({ value, onChange }: Props) {
               onChange={(e) => setBaseSize(Number(e.target.value))}
             />
             <span className="hw-value">{baseSize}px</span>
-          </label>
-        </div>
-        <div className="hw-toolbar-group">
-          <label className="hw-label">
-            防误触
-            <input
-              type="checkbox"
-              checked={palmRejection}
-              onChange={(e) => setPalmRejection(e.target.checked)}
-              style={{ marginLeft: 8 }}
-              title="开启后仅手写笔(pen)可书写，手指/手掌(touch)只用于滚动/缩放/翻页"
-            />
-          </label>
-        </div>
-        <div className="hw-toolbar-group">
-          <label className="hw-label">
-            画布
-            <select
-              className="hw-select"
-              value={mode}
-              onChange={(e) => {
-                const next = e.target.value as HandwritingCanvasMode;
-                setMode(next);
-                if (next === 'paged') {
-                  setPageCount((c) => Math.max(1, c));
-                } else {
-                  setHeight((h) => Math.max(PAGE_HEIGHT, h));
-                }
-              }}
-            >
-              <option value="infinite">无限扩展</option>
-              <option value="paged">分页向下</option>
-            </select>
           </label>
         </div>
         <div className="hw-toolbar-group">

@@ -101,5 +101,10 @@ export type UserData = {
   documents: DocumentMeta[];
   flowcharts: FlowchartMeta[];
   flowchartStates: Record<string, MindMapState>;
+  // UI preferences (optional for backward compatibility)
+  ui?: {
+    defaultFolderName?: string;
+    defaultFolderDeleted?: boolean;
+  };
 };
 
