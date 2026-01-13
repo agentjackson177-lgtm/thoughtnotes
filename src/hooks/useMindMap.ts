@@ -358,9 +358,9 @@ export const useMindMap = create<MindMapState & Actions & HistoryState>((set, ge
       };
 
       const { node: newRoot, children } = pasteRecursive(clipboard, parentId);
-      const nodes = { ...state.nodes, [newRoot.id]: newRoot };
+      const nodes: Record<string, MindNode> = { ...state.nodes, [newRoot.id]: newRoot as MindNode };
       children.forEach(({ node: n }: any) => {
-        nodes[n.id] = n;
+        nodes[(n as MindNode).id] = n as MindNode;
       });
       nodes[parentId] = {
         ...parent,
@@ -380,4 +380,3 @@ export const exportData = (state: MindMapState) => {
   a.click();
   URL.revokeObjectURL(url);
 };
-

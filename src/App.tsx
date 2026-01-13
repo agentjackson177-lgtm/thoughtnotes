@@ -394,6 +394,8 @@ function App() {
         id: string;
       }
   >(null);
+  const [moveDialog, setMoveDialog] = useState<null | { type: 'map' | 'document' | 'flowchart'; id: string }>(null);
+  const [moveDialogTarget, setMoveDialogTarget] = useState<string>('root');
   const isPanning = useRef(false);
   const lastPoint = useRef<{ x: number; y: number } | null>(null);
   const draggingNodeId = useRef<string | null>(null);
@@ -1089,6 +1091,15 @@ function App() {
 
   const closeFileMenu = () => setFileMenu(null);
 
+  useEffect(() => {
+    if (!moveDialog) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMoveDialog(null);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [moveDialog]);
+
   const exportFileAsImage = async (type: 'map' | 'flowchart', id: string) => {
     try {
       if (type === 'map') {
@@ -1106,15 +1117,42 @@ function App() {
     }
   };
 
-  const moveTargetPrompt = (): string | null => {
-    const opts = ['root', ...folders.map((f) => f.id)].join(', ');
-    const input = window.prompt(`移动到哪里？输入 root 或文件夹ID\n可选: ${opts}`, 'root');
-    if (!input) return null;
-    const v = input.trim();
-    if (v === 'root') return null;
-    if (folders.some((f) => f.id === v)) return v;
-    alert('无效的目标文件夹ID');
-    return null;
+  const moveMapTo = (id: string, folderId: string | null) => {
+    setMaps((prev) => prev.map((x) => (x.id === id ? { ...x, folderId, updatedAt: Date.now() } : x)));
+  };
+
+  const moveDocumentTo = (id: string, folderId: string | null) => {
+    setDocuments((prev) => prev.map((x) => (x.id === id ? { ...x, folderId, updatedAt: Date.now() } : x)));
+  };
+
+  const moveFlowchartTo = (id: string, folderId: string | null) => {
+    setFlowcharts((prev) => prev.map((x) => (x.id === id ? { ...x, folderId, updatedAt: Date.now() } : x)));
+  };
+
+  const openMoveDialog = (type: 'map' | 'document' | 'flowchart', id: string) => {
+    let currentFolderId: string | null = null;
+    if (type === 'map') currentFolderId = maps.find((x) => x.id === id)?.folderId ?? null;
+    else if (type === 'document') currentFolderId = documents.find((x) => x.id === id)?.folderId ?? null;
+    else if (type === 'flowchart') currentFolderId = flowcharts.find((x) => x.id === id)?.folderId ?? null;
+
+    setMoveDialog({ type, id });
+    setMoveDialogTarget(currentFolderId ?? 'root');
+    closeFileMenu();
+  };
+
+  const cancelMoveDialog = () => setMoveDialog(null);
+
+  const confirmMoveDialog = () => {
+    if (!moveDialog) return;
+    const folderId = moveDialogTarget === 'root' ? null : moveDialogTarget;
+    if (folderId !== null && !folders.some((f) => f.id === folderId)) {
+      alert('无效的目标文件夹');
+      return;
+    }
+    if (moveDialog.type === 'map') moveMapTo(moveDialog.id, folderId);
+    else if (moveDialog.type === 'document') moveDocumentTo(moveDialog.id, folderId);
+    else if (moveDialog.type === 'flowchart') moveFlowchartTo(moveDialog.id, folderId);
+    setMoveDialog(null);
   };
 
   const renameMap = (id: string) => {
@@ -1139,10 +1177,7 @@ function App() {
     }
   };
 
-  const moveMap = (id: string) => {
-    const folderId = moveTargetPrompt();
-    setMaps((prev) => prev.map((x) => (x.id === id ? { ...x, folderId, updatedAt: Date.now() } : x)));
-  };
+  const moveMap = (id: string) => openMoveDialog('map', id);
 
   const renameDocument = (id: string) => {
     const d = documents.find((x) => x.id === id);
@@ -1178,10 +1213,7 @@ function App() {
     }
   };
 
-  const moveFlowchart = (id: string) => {
-    const folderId = moveTargetPrompt();
-    setFlowcharts((prev) => prev.map((x) => (x.id === id ? { ...x, folderId, updatedAt: Date.now() } : x)));
-  };
+  const moveFlowchart = (id: string) => openMoveDialog('flowchart', id);
 
   const deleteDocumentById = (id: string) => {
     if (!window.confirm('确定删除该文档？')) return;
@@ -1191,10 +1223,7 @@ function App() {
     }
   };
 
-  const moveDocument = (id: string) => {
-    const folderId = moveTargetPrompt();
-    setDocuments((prev) => prev.map((x) => (x.id === id ? { ...x, folderId, updatedAt: Date.now() } : x)));
-  };
+  const moveDocument = (id: string) => openMoveDialog('document', id);
 
   const handleUpdateDocumentContent = (id: string, content: string) => {
     setDocuments((prev) =>
@@ -1764,7 +1793,6 @@ function App() {
                 if (fileMenu.type === 'map') moveMap(fileMenu.id);
                 else if (fileMenu.type === 'document') moveDocument(fileMenu.id);
                 else if (fileMenu.type === 'flowchart') moveFlowchart(fileMenu.id);
-                closeFileMenu();
               }}
             >
               移动
@@ -1781,6 +1809,36 @@ function App() {
             >
               删除
             </button>
+          </div>
+        )}
+
+        {moveDialog && (
+          <div className="modal-overlay" onClick={cancelMoveDialog}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-title">移动到</div>
+              <div className="modal-row">
+                <select
+                  className="modal-select"
+                  value={moveDialogTarget}
+                  onChange={(e) => setMoveDialogTarget(e.target.value)}
+                >
+                  <option value="root">根目录</option>
+                  {folders.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      📁 {f.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="modal-actions">
+                <button className="button" onClick={cancelMoveDialog}>
+                  取消
+                </button>
+                <button className="button primary" onClick={confirmMoveDialog}>
+                  移动
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -2338,4 +2396,3 @@ function ContextMenu({
 }
 
 export default App;
-

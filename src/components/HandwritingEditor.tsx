@@ -286,7 +286,7 @@ export default function HandwritingEditor({ value, onChange }: Props) {
     (e: React.PointerEvent) => {
       if (e.button !== 0) return;
       // 防误触：开启后 touch（手指/手掌）不允许落笔，避免缩放/滚动/翻页时误写
-      if (palmRejection && (e as PointerEvent).pointerType === 'touch') return;
+      if (palmRejection && e.pointerType === 'touch') return;
       const container = paperRef.current;
       const canvas = canvasRef.current;
       if (!container || !canvas) return;
@@ -520,5 +520,4 @@ export default function HandwritingEditor({ value, onChange }: Props) {
     </div>
   );
 }
-
 
