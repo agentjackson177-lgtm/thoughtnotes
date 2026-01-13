@@ -97,6 +97,7 @@ function isPen(e: PointerEvent | React.PointerEvent): boolean {
 
 export default function HandwritingEditor({ value, onChange }: Props) {
   const data = useMemo(() => normalizeHandwritingData(value), [value]);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const paperRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
@@ -111,6 +112,9 @@ export default function HandwritingEditor({ value, onChange }: Props) {
   const [palmRejection, setPalmRejection] = useState<boolean>(data.palmRejection ?? true);
   const [pageCount, setPageCount] = useState<number>(data.pageCount);
   const [height, setHeight] = useState<number>(data.height);
+  const [zoomPct, setZoomPct] = useState<number>(100);
+  const [scrollY, setScrollY] = useState<number>(0);
+  const [scrollYMax, setScrollYMax] = useState<number>(0);
 
   useEffect(() => {
     setBaseSize(data.baseSize);
@@ -120,6 +124,8 @@ export default function HandwritingEditor({ value, onChange }: Props) {
     setPageCount(data.pageCount);
     setHeight(data.height);
   }, [data.baseSize, data.background, data.mode, data.palmRejection, data.pageCount, data.height]);
+
+  const zoom = useMemo(() => clamp(zoomPct / 100, 0.5, 2), [zoomPct]);
 
   const getCtx = useCallback(() => {
     const canvas = canvasRef.current;
@@ -214,6 +220,46 @@ export default function HandwritingEditor({ value, onChange }: Props) {
     resizeCanvas();
     redraw();
   }, [logicalHeight, resizeCanvas, redraw]);
+
+  const syncScrollMetrics = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const max = Math.max(0, el.scrollHeight - el.clientHeight);
+    setScrollYMax(max);
+    setScrollY((cur) => clamp(cur, 0, max));
+  }, []);
+
+  // Keep scroll slider in sync with actual scroll position and content size
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const onScroll = () => {
+      setScrollY(el.scrollTop);
+      setScrollYMax(Math.max(0, el.scrollHeight - el.clientHeight));
+    };
+
+    el.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+
+    const ro = new ResizeObserver(() => {
+      onScroll();
+    });
+    ro.observe(el);
+    if (paperRef.current) ro.observe(paperRef.current);
+
+    return () => {
+      el.removeEventListener('scroll', onScroll);
+      ro.disconnect();
+    };
+  }, []);
+
+  // When zoom / logicalHeight changes, the scrollHeight will change after resizeCanvas runs
+  useEffect(() => {
+    // next frame to let DOM/ResizeObserver settle
+    const id = window.requestAnimationFrame(() => syncScrollMetrics());
+    return () => window.cancelAnimationFrame(id);
+  }, [logicalHeight, syncScrollMetrics, zoom]);
 
   // Persist setting changes
   useEffect(() => {
@@ -395,15 +441,14 @@ export default function HandwritingEditor({ value, onChange }: Props) {
               <option value="blank">空白草纸</option>
             </select>
           </label>
-          {mode === 'paged' && background === 'blank' && (
-            <button
-              className="button"
-              onClick={() => setPageCount((c) => c + 1)}
-              title="增加页面"
-            >
-              增加页面
-            </button>
-          )}
+          <button
+            className="button"
+            onClick={() => setPageCount((c) => c + 1)}
+            title={mode === 'paged' ? '增加页面' : '仅分页模式可用'}
+            disabled={mode !== 'paged'}
+          >
+            增加页面
+          </button>
         </div>
         <div className="hw-toolbar-group hw-toolbar-actions">
           <button className="button" onClick={undo} disabled={data.strokes.length === 0}>
@@ -418,16 +463,58 @@ export default function HandwritingEditor({ value, onChange }: Props) {
         </div>
       </div>
 
-      <div className="hw-paper-scroll">
-        <div ref={paperRef} className={`hw-paper ${background === 'lined' ? 'lined' : 'blank'}`}>
-          <canvas
-            ref={canvasRef}
-            className="hw-canvas"
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={onPointerUp}
-            onPointerCancel={onPointerCancel}
+      <div className="hw-stage">
+        <div className="hw-zoom-bar">
+          <label className="hw-label">
+            缩放
+            <input
+              className="hw-slider hw-zoom-slider"
+              type="range"
+              min={50}
+              max={200}
+              value={zoomPct}
+              onChange={(e) => setZoomPct(Number(e.target.value))}
+            />
+            <span className="hw-value">{zoomPct}%</span>
+          </label>
+          <button className="button" onClick={() => setZoomPct(100)} title="缩放重置为 100%">
+            复位
+          </button>
+        </div>
+
+        <div className="hw-pan-y" aria-label="上下移动画布">
+          <input
+            className="hw-slider hw-slider-vertical"
+            type="range"
+            min={0}
+            max={scrollYMax}
+            // 反向映射：UI 往下拖 => 数值变大 => 画布往下滚（scrollTop 变大）
+            value={scrollYMax - scrollY}
+            onChange={(e) => {
+              const uiValue = Number(e.target.value);
+              const next = scrollYMax - uiValue;
+              const el = scrollRef.current;
+              if (el) el.scrollTop = next;
+              setScrollY(next);
+            }}
           />
+        </div>
+
+        <div ref={scrollRef} className="hw-paper-scroll">
+          <div
+            ref={paperRef}
+            className={`hw-paper ${background === 'lined' ? 'lined' : 'blank'}`}
+            style={{ width: `${zoom * 100}%`, ['--hw-zoom' as any]: zoom } as React.CSSProperties}
+          >
+            <canvas
+              ref={canvasRef}
+              className="hw-canvas"
+              onPointerDown={onPointerDown}
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+              onPointerCancel={onPointerCancel}
+            />
+          </div>
         </div>
       </div>
     </div>
