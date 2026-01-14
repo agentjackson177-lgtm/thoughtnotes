@@ -24,10 +24,18 @@ type NodeInfo = {
   treeHeight: number; // Total height of the subtree including this node
 };
 
-const HORIZONTAL_GAP = 50;
-const VERTICAL_GAP = 20;
+// Mindmap spacing (match dark UI reference)
+const HORIZONTAL_GAP = 90;
+const VERTICAL_GAP = 28;
 const FLOWCHART_HORIZONTAL_GAP = 30;
 const FLOWCHART_VERTICAL_GAP = 50;
+
+const getNodeUiByDepth = (depth: number) => {
+  if (depth <= 0) return { fontSize: 36, height: 82, paddingX: 44 };
+  if (depth === 1) return { fontSize: 22, height: 56, paddingX: 32 };
+  // 三级及以后：更像“注释文本”，尺寸更小（且无背景色在 CSS 中处理）
+  return { fontSize: 18, height: 40, paddingX: 10 };
+};
 
 // 流程图布局算法（从上到下）
 const computeFlowchartLayout = (nodes: Record<string, MindNode>, rootId: string) => {
@@ -152,12 +160,13 @@ const computeLayout = (nodes: Record<string, MindNode>, rootId: string) => {
 
   // Step 1: Pre-calculation (Post-order traversal)
   // Calculate width, height, and treeHeight for every node
-  const calculateNodeInfo = (id: string): number => {
+  const calculateNodeInfo = (id: string, depth: number): number => {
     const node = nodes[id];
     if (!node) return 0;
 
-    // Calculate dimensions based on text content
-    const dims = calculateNodeDimensions(node.title);
+    // Calculate dimensions based on depth style
+    const ui = getNodeUiByDepth(depth);
+    const dims = calculateNodeDimensions(node.title, ui);
     // Reserve extra space for left badges (progress + priority) to avoid truncation
     const hasProgress = !!node.progress && node.progress !== 'none';
     const hasPriority = !!node.priority && node.priority >= 1 && node.priority <= 4;
@@ -179,7 +188,7 @@ const computeLayout = (nodes: Record<string, MindNode>, rootId: string) => {
       // Node with children: sum of child treeHeights + gaps
       let totalChildHeight = 0;
       visibleChildren.forEach((childId) => {
-        totalChildHeight += calculateNodeInfo(childId);
+        totalChildHeight += calculateNodeInfo(childId, depth + 1);
       });
       // Add gaps between children: (children.length - 1) * VERTICAL_GAP
       treeHeight = totalChildHeight + (visibleChildren.length - 1) * VERTICAL_GAP;
@@ -192,7 +201,7 @@ const computeLayout = (nodes: Record<string, MindNode>, rootId: string) => {
   };
 
   // Start post-order traversal from root
-  calculateNodeInfo(rootId);
+  calculateNodeInfo(rootId, 0);
 
   // Step 2: Main Layout (Pre-order traversal)
   // Set x and y coordinates for every node
@@ -201,6 +210,7 @@ const computeLayout = (nodes: Record<string, MindNode>, rootId: string) => {
     parentX: number,
     parentWidth: number,
     parentCenterY: number,
+    depth: number,
   ): void => {
     const node = nodes[id];
     if (!node) return;
@@ -225,7 +235,7 @@ const computeLayout = (nodes: Record<string, MindNode>, rootId: string) => {
       let currentChildY = parentCenterY - info.treeHeight / 2;
       const childYPositions: number[] = [];
 
-      visibleChildren.forEach((childId) => {
+    visibleChildren.forEach((childId) => {
         const childInfo = nodeInfo[childId];
         if (!childInfo) return;
 
@@ -235,7 +245,7 @@ const computeLayout = (nodes: Record<string, MindNode>, rootId: string) => {
         childYPositions.push(childY);
 
         // Recurse for the child
-        setCoordinates(childId, x, info.width, childCenterY);
+      setCoordinates(childId, x, info.width, childCenterY, depth + 1);
 
         // Update currentChildY for next child
         currentChildY += childInfo.treeHeight + VERTICAL_GAP;
@@ -253,7 +263,7 @@ const computeLayout = (nodes: Record<string, MindNode>, rootId: string) => {
       }
     }
 
-    positions[id] = { x, y, depth: 0, width: info.width, height: info.height };
+    positions[id] = { x, y, depth, width: info.width, height: info.height };
   };
 
   // Start pre-order traversal from root
@@ -274,7 +284,7 @@ const computeLayout = (nodes: Record<string, MindNode>, rootId: string) => {
       };
     } else {
       // Root has children, center it vertically at y = 0
-      setCoordinates(rootId, 0, 0, 0);
+      setCoordinates(rootId, 0, 0, 0, 0);
     }
   }
 
@@ -394,7 +404,10 @@ function App() {
         id: string;
       }
   >(null);
-  const [folderContextMenu, setFolderContextMenu] = useState<null | { x: number; y: number; folderId: string }>(null);
+  // folderId: null 表示“默认/根”文件夹
+  const [folderContextMenu, setFolderContextMenu] = useState<null | { x: number; y: number; folderId: string | null }>(
+    null,
+  );
   const [moveDialog, setMoveDialog] = useState<null | { type: 'map' | 'document' | 'flowchart'; id: string }>(null);
   const [moveDialogTarget, setMoveDialogTarget] = useState<string>('root');
   const [defaultFolderName, setDefaultFolderName] = useState<string>('默认');
@@ -1000,7 +1013,6 @@ function App() {
     setFolders((prev) => prev.map((x) => (x.id === id ? { ...x, name: nextName } : x)));
   };
 
-  const DEFAULT_FOLDER_MENU_ID = '__default_folder__';
   const renameDefaultFolder = () => {
     const name = window.prompt('重命名文件夹', defaultFolderName);
     if (!name) return;
@@ -1658,7 +1670,7 @@ function App() {
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      setFolderContextMenu({ x: e.clientX, y: e.clientY, folderId: DEFAULT_FOLDER_MENU_ID });
+                      setFolderContextMenu({ x: e.clientX, y: e.clientY, folderId: null });
                     }}
                     style={{ padding: '2px 6px', fontSize: 12 }}
                   >
@@ -1898,7 +1910,7 @@ function App() {
             style={{ left: `${folderContextMenu.x}px`, top: `${folderContextMenu.y}px` }}
             onClick={(e) => e.stopPropagation()}
           >
-            {folderContextMenu.folderId === DEFAULT_FOLDER_MENU_ID ? (
+            {folderContextMenu.folderId === null ? (
               <>
                 <button
                   className="context-menu-item"
@@ -1925,7 +1937,7 @@ function App() {
                 <button
                   className="context-menu-item"
                   onClick={() => {
-                    renameFolder(folderContextMenu.folderId);
+                    if (folderContextMenu.folderId) renameFolder(folderContextMenu.folderId);
                     setFolderContextMenu(null);
                   }}
                 >
@@ -1935,7 +1947,7 @@ function App() {
                 <button
                   className="context-menu-item danger"
                   onClick={() => {
-                    deleteFolder(folderContextMenu.folderId);
+                    if (folderContextMenu.folderId) deleteFolder(folderContextMenu.folderId);
                     setFolderContextMenu(null);
                   }}
                 >
@@ -1979,7 +1991,7 @@ function App() {
         {viewMode === 'mindmap' ? (
         <div
           ref={canvasShellRef}
-          className="canvas-shell"
+          className={`canvas-shell ${viewMode === 'mindmap' ? 'mindmap-dark' : ''}`}
           onWheel={handleWheel}
           onPointerDown={startPan}
           onPointerMove={movePan}
@@ -2020,14 +2032,17 @@ function App() {
               const d = `M ${startX} ${startY} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${endX} ${endY}`;
 
               return (
-                <path
-                  key={`${node.id}-line`}
-                  d={d}
-                  fill="none"
-                  stroke="#c5d3ff"
-                  strokeWidth={4}
-                  strokeLinecap="round"
-                />
+                <React.Fragment key={`${node.id}-edge`}>
+                  <path
+                    d={d}
+                    fill="none"
+                    stroke="rgba(255,255,255,0.88)"
+                    strokeWidth={5}
+                    strokeLinecap="round"
+                  />
+                  <circle cx={startX} cy={startY} r={4} fill="rgba(255,255,255,0.9)" />
+                  <circle cx={endX} cy={endY} r={4} fill="rgba(255,255,255,0.9)" />
+                </React.Fragment>
               );
             })}
           </svg>
@@ -2066,7 +2081,7 @@ function App() {
             return (
               <React.Fragment key={node.id}>
                 <div
-                    className={`node ${selectedIds.has(node.id) ? 'selected' : ''} ${isDragging ? 'dragging' : ''} ${isDragOver ? 'drag-over' : ''}`}
+                    className={`node depth-${pos.depth} ${selectedIds.has(node.id) ? 'selected' : ''} ${isDragging ? 'dragging' : ''} ${isDragOver ? 'drag-over' : ''}`}
                   style={{
                       transform: `translate(${pos.x}px, ${pos.y}px)`,
                     transformOrigin: 'top left',
@@ -2335,10 +2350,10 @@ function App() {
                     style={{
                       width: '100%',
                       height: '100%',
-                        textAlign: hasProgress || hasPriority ? 'left' : 'center',
+                        textAlign: pos.depth >= 2 ? 'center' : hasProgress || hasPriority ? 'left' : 'center',
                       lineHeight: `${nodeHeight}px`,
-                        paddingLeft: `${leftPad}px`,
-                        paddingRight: '20px',
+                        paddingLeft: pos.depth >= 2 ? '0px' : `${leftPad}px`,
+                        paddingRight: pos.depth >= 2 ? '0px' : '20px',
                     }}
                   />
                 </div>

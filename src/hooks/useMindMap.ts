@@ -7,7 +7,8 @@ export const createInitialState = (): MindMapState => {
   return {
     rootId,
     selectedId: rootId,
-    scale: 1,
+    // 默认缩放更小（约等于手动点 4 次“缩小”的观感）
+    scale: 0.6,
     offset: { x: 200, y: 120 },
     nodes: {
       [rootId]: {

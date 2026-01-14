@@ -23,20 +23,22 @@ const getCanvasContext = (): CanvasRenderingContext2D => {
   return context;
 };
 
-export const getTextWidth = (text: string): number => {
+export const getTextWidth = (text: string, fontSize: number = FONT_SIZE): number => {
   const ctx = getCanvasContext();
-  ctx.font = `${FONT_SIZE}px ${FONT_FAMILY}`;
+  ctx.font = `${fontSize}px ${FONT_FAMILY}`;
   const metrics = ctx.measureText(text);
   return metrics.width;
 };
 
-export const calculateNodeDimensions = (text: string): { width: number; height: number } => {
-  const textWidth = getTextWidth(text);
-  // Formula: node.width = calculated_text_width + 40
-  const width = textWidth + 40;
-  // Formula: node.height = 40 (fixed height)
-  const height = 40;
-  
+export const calculateNodeDimensions = (
+  text: string,
+  opts?: { fontSize?: number; paddingX?: number; height?: number },
+): { width: number; height: number } => {
+  const fontSize = opts?.fontSize ?? FONT_SIZE;
+  const paddingX = opts?.paddingX ?? HORIZONTAL_PADDING;
+  const height = opts?.height ?? 40;
+  const textWidth = getTextWidth(text, fontSize);
+  const width = textWidth + paddingX * 2;
   return { width, height };
 };
 

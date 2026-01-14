@@ -33,3 +33,27 @@
 /* sidebar-header-min */
 .sidebar-header{justify-content:flex-start}
 
+
+/* mindmap-dark */
+.canvas-shell.mindmap-dark{background:
+  radial-gradient(circle at 1px 1px, rgba(0,0,0,.28) 1px, transparent 0) 0 0/12px 12px,
+  linear-gradient(180deg,#5a6166 0%, #454b50 45%, #3c4246 100%);
+}
+.canvas-shell.mindmap-dark .selection-box{border-color:rgba(255,255,255,.85);background:rgba(255,255,255,.08)}
+
+.canvas-shell.mindmap-dark .node{border:none;box-shadow:0 14px 36px rgba(0,0,0,.35);transform:translateZ(0)}
+.canvas-shell.mindmap-dark .node.selected{outline:2px solid rgba(255,255,255,.9);box-shadow:0 0 0 6px rgba(255,255,255,.12),0 18px 44px rgba(0,0,0,.5);border:none;transform:none}
+
+.canvas-shell.mindmap-dark .node.depth-0{background:#e9e0a2;border-radius:44px}
+.canvas-shell.mindmap-dark .node.depth-1{background:#b7cec9;border-radius:28px}
+/* 深度>=2：注释文本风格（2~10级统一） */
+.canvas-shell.mindmap-dark .node:not(.depth-0):not(.depth-1){background:transparent;border-radius:0;box-shadow:none}
+.canvas-shell.mindmap-dark .node:not(.depth-0):not(.depth-1).selected{background:#facc15;border-radius:999px;outline:none;box-shadow:0 0 0 6px rgba(0,0,0,.12),0 18px 44px rgba(0,0,0,.5)}
+.canvas-shell.mindmap-dark .node:not(.depth-0):not(.depth-1).selected .node-text{color:#111827;background:transparent}
+
+.canvas-shell.mindmap-dark .node-text{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;font-weight:600;letter-spacing:.5px;color:#1f2937;text-align:center}
+.canvas-shell.mindmap-dark .node.depth-0 .node-text{font-size:36px;font-weight:800;color:#2b2b2b}
+.canvas-shell.mindmap-dark .node.depth-1 .node-text{font-size:22px;font-weight:700;color:#1f2937}
+.canvas-shell.mindmap-dark .node:not(.depth-0):not(.depth-1) .node-text{font-size:18px;font-weight:600;color:rgba(255,255,255,.92);letter-spacing:.2px}
+
+.canvas-shell.mindmap-dark .collapse-btn-external{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.35);color:#fff;box-shadow:none}
