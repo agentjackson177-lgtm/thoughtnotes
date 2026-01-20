@@ -34,7 +34,7 @@ const getNodeUiByDepth = (depth: number) => {
   if (depth <= 0) return { fontSize: 36, height: 82, paddingX: 44 };
   if (depth === 1) return { fontSize: 22, height: 56, paddingX: 32 };
   // 三级及以后：更像“注释文本”，尺寸更小（且无背景色在 CSS 中处理）
-  return { fontSize: 18, height: 40, paddingX: 10 };
+  return { fontSize: 21, height: 46, paddingX: 10 };
 };
 
 // 流程图布局算法（从上到下）
@@ -408,6 +408,7 @@ function App() {
   const [folderContextMenu, setFolderContextMenu] = useState<null | { x: number; y: number; folderId: string | null }>(
     null,
   );
+  const [collapsedFolderKeys, setCollapsedFolderKeys] = useState<Set<string>>(() => new Set());
   const [moveDialog, setMoveDialog] = useState<null | { type: 'map' | 'document' | 'flowchart'; id: string }>(null);
   const [moveDialogTarget, setMoveDialogTarget] = useState<string>('root');
   const [defaultFolderName, setDefaultFolderName] = useState<string>('默认');
@@ -1154,6 +1155,17 @@ function App() {
   };
 
   const closeFileMenu = () => setFileMenu(null);
+  const folderKeyOf = (folderId: string | null) => folderId ?? '__root__';
+  const isFolderCollapsed = (folderId: string | null) => collapsedFolderKeys.has(folderKeyOf(folderId));
+  const toggleFolderCollapsed = (folderId: string | null) => {
+    setCollapsedFolderKeys((prev) => {
+      const next = new Set(prev);
+      const key = folderKeyOf(folderId);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (!moveDialog) return;
@@ -1457,6 +1469,7 @@ function App() {
   };
 
   const visibleNodes = allNodes.filter((n) => isVisible(n.id));
+  const rootCollapsed = !defaultFolderDeleted && isFolderCollapsed(null);
 
   // 启动时先恢复云端登录态（避免闪一下登录页）
   if (authBooting) {
@@ -1678,7 +1691,7 @@ function App() {
                   </button>
                 )}
               </div>
-              {!defaultFolderDeleted && (
+              {!defaultFolderDeleted && !rootCollapsed && (
                 <div className="folder-row-actions">
                   <button className="link-btn" onClick={() => handleCreateMap(null)}>
                     新建导图
@@ -1695,59 +1708,63 @@ function App() {
                 </div>
               )}
             </div>
-            {maps
-              .filter((m) => m.folderId === null)
-              .map((m) => (
-                <div
-                  key={m.id}
-                  className={`map-row ${currentMapId === m.id && viewMode === 'mindmap' ? 'active' : ''}`}
-                  onClick={() => handleSwitchMap(m.id)}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setFileMenu({ x: e.clientX, y: e.clientY, type: 'map', id: m.id });
-                  }}
-                >
-                  <div className="map-name">🗺️ {m.name}</div>
-                  <div className="map-meta">{new Date(m.updatedAt).toLocaleDateString()}</div>
-                </div>
-              ))}
-            {documents
-              .filter((d) => d.folderId === null)
-              .map((d) => (
-                <div
-                  key={d.id}
-                  className={`map-row ${currentDocumentId === d.id && viewMode === 'document' ? 'active' : ''}`}
-                  onClick={() => handleSwitchDocument(d.id)}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setFileMenu({ x: e.clientX, y: e.clientY, type: 'document', id: d.id });
-                  }}
-                >
-                  <div className="map-name">
-                    {d.kind === 'handwriting' ? '✍️' : '📄'} {d.name}
-                  </div>
-                  <div className="map-meta">{new Date(d.updatedAt).toLocaleDateString()}</div>
-                </div>
-              ))}
-            {flowcharts
-              .filter((f) => f.folderId === null)
-              .map((f) => (
-                <div
-                  key={f.id}
-                  className={`map-row ${currentFlowchartId === f.id && viewMode === 'flowchart' ? 'active' : ''}`}
-                  onClick={() => handleSwitchFlowchart(f.id)}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setFileMenu({ x: e.clientX, y: e.clientY, type: 'flowchart', id: f.id });
-                  }}
-                >
-                  <div className="map-name">🔀 {f.name}</div>
-                  <div className="map-meta">{new Date(f.updatedAt).toLocaleDateString()}</div>
-                </div>
-              ))}
+            {!rootCollapsed && (
+              <>
+                {maps
+                  .filter((m) => m.folderId === null)
+                  .map((m) => (
+                    <div
+                      key={m.id}
+                      className={`map-row ${currentMapId === m.id && viewMode === 'mindmap' ? 'active' : ''}`}
+                      onClick={() => handleSwitchMap(m.id)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setFileMenu({ x: e.clientX, y: e.clientY, type: 'map', id: m.id });
+                      }}
+                    >
+                      <div className="map-name">🗺️ {m.name}</div>
+                      <div className="map-meta">{new Date(m.updatedAt).toLocaleDateString()}</div>
+                    </div>
+                  ))}
+                {documents
+                  .filter((d) => d.folderId === null)
+                  .map((d) => (
+                    <div
+                      key={d.id}
+                      className={`map-row ${currentDocumentId === d.id && viewMode === 'document' ? 'active' : ''}`}
+                      onClick={() => handleSwitchDocument(d.id)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setFileMenu({ x: e.clientX, y: e.clientY, type: 'document', id: d.id });
+                      }}
+                    >
+                      <div className="map-name">
+                        {d.kind === 'handwriting' ? '✍️' : '📄'} {d.name}
+                      </div>
+                      <div className="map-meta">{new Date(d.updatedAt).toLocaleDateString()}</div>
+                    </div>
+                  ))}
+                {flowcharts
+                  .filter((f) => f.folderId === null)
+                  .map((f) => (
+                    <div
+                      key={f.id}
+                      className={`map-row ${currentFlowchartId === f.id && viewMode === 'flowchart' ? 'active' : ''}`}
+                      onClick={() => handleSwitchFlowchart(f.id)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setFileMenu({ x: e.clientX, y: e.clientY, type: 'flowchart', id: f.id });
+                      }}
+                    >
+                      <div className="map-name">🔀 {f.name}</div>
+                      <div className="map-meta">{new Date(f.updatedAt).toLocaleDateString()}</div>
+                    </div>
+                  ))}
+              </>
+            )}
           </div>
           {folders.map((folder) => (
             <div key={folder.id} className="folder-section">
@@ -1776,74 +1793,80 @@ function App() {
                     ≡
                   </button>
                 </div>
-                <div className="folder-row-actions">
-                  <button className="link-btn" onClick={() => handleCreateMap(folder.id)}>
-                    新建导图
-                  </button>
-                  <button className="link-btn" onClick={() => handleCreateDocument(folder.id)}>
-                    新建文档
-                  </button>
-                  <button className="link-btn" onClick={() => handleCreateHandwritingDocument(folder.id)}>
-                    新建手写
-                  </button>
-                  <button className="link-btn" onClick={() => handleCreateFlowchart(folder.id)}>
-                    新建流程图
-                  </button>
-                </div>
+                {!isFolderCollapsed(folder.id) && (
+                  <div className="folder-row-actions">
+                    <button className="link-btn" onClick={() => handleCreateMap(folder.id)}>
+                      新建导图
+                    </button>
+                    <button className="link-btn" onClick={() => handleCreateDocument(folder.id)}>
+                      新建文档
+                    </button>
+                    <button className="link-btn" onClick={() => handleCreateHandwritingDocument(folder.id)}>
+                      新建手写
+                    </button>
+                    <button className="link-btn" onClick={() => handleCreateFlowchart(folder.id)}>
+                      新建流程图
+                    </button>
+                  </div>
+                )}
               </div>
-              {maps
-                .filter((m) => m.folderId === folder.id)
-                .map((m) => (
-                  <div
-                    key={m.id}
-                    className={`map-row ${currentMapId === m.id && viewMode === 'mindmap' ? 'active' : ''}`}
-                    onClick={() => handleSwitchMap(m.id)}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setFileMenu({ x: e.clientX, y: e.clientY, type: 'map', id: m.id });
-                    }}
-                  >
-                    <div className="map-name">🗺️ {m.name}</div>
-                    <div className="map-meta">{new Date(m.updatedAt).toLocaleDateString()}</div>
-                  </div>
-                ))}
-              {documents
-                .filter((d) => d.folderId === folder.id)
-                .map((d) => (
-                  <div
-                    key={d.id}
-                    className={`map-row ${currentDocumentId === d.id && viewMode === 'document' ? 'active' : ''}`}
-                    onClick={() => handleSwitchDocument(d.id)}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setFileMenu({ x: e.clientX, y: e.clientY, type: 'document', id: d.id });
-                    }}
-                  >
-                    <div className="map-name">
-                      {d.kind === 'handwriting' ? '✍️' : '📄'} {d.name}
-                    </div>
-                    <div className="map-meta">{new Date(d.updatedAt).toLocaleDateString()}</div>
-                  </div>
-                ))}
-              {flowcharts
-                .filter((f) => f.folderId === folder.id)
-                .map((f) => (
-                  <div
-                    key={f.id}
-                    className={`map-row ${currentFlowchartId === f.id && viewMode === 'flowchart' ? 'active' : ''}`}
-                    onClick={() => handleSwitchFlowchart(f.id)}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setFileMenu({ x: e.clientX, y: e.clientY, type: 'flowchart', id: f.id });
-                    }}
-                  >
-                    <div className="map-name">🔀 {f.name}</div>
-                    <div className="map-meta">{new Date(f.updatedAt).toLocaleDateString()}</div>
-                  </div>
-                ))}
+              {!isFolderCollapsed(folder.id) && (
+                <>
+                  {maps
+                    .filter((m) => m.folderId === folder.id)
+                    .map((m) => (
+                      <div
+                        key={m.id}
+                        className={`map-row ${currentMapId === m.id && viewMode === 'mindmap' ? 'active' : ''}`}
+                        onClick={() => handleSwitchMap(m.id)}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setFileMenu({ x: e.clientX, y: e.clientY, type: 'map', id: m.id });
+                        }}
+                      >
+                        <div className="map-name">🗺️ {m.name}</div>
+                        <div className="map-meta">{new Date(m.updatedAt).toLocaleDateString()}</div>
+                      </div>
+                    ))}
+                  {documents
+                    .filter((d) => d.folderId === folder.id)
+                    .map((d) => (
+                      <div
+                        key={d.id}
+                        className={`map-row ${currentDocumentId === d.id && viewMode === 'document' ? 'active' : ''}`}
+                        onClick={() => handleSwitchDocument(d.id)}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setFileMenu({ x: e.clientX, y: e.clientY, type: 'document', id: d.id });
+                        }}
+                      >
+                        <div className="map-name">
+                          {d.kind === 'handwriting' ? '✍️' : '📄'} {d.name}
+                        </div>
+                        <div className="map-meta">{new Date(d.updatedAt).toLocaleDateString()}</div>
+                      </div>
+                    ))}
+                  {flowcharts
+                    .filter((f) => f.folderId === folder.id)
+                    .map((f) => (
+                      <div
+                        key={f.id}
+                        className={`map-row ${currentFlowchartId === f.id && viewMode === 'flowchart' ? 'active' : ''}`}
+                        onClick={() => handleSwitchFlowchart(f.id)}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setFileMenu({ x: e.clientX, y: e.clientY, type: 'flowchart', id: f.id });
+                        }}
+                      >
+                        <div className="map-name">🔀 {f.name}</div>
+                        <div className="map-meta">{new Date(f.updatedAt).toLocaleDateString()}</div>
+                      </div>
+                    ))}
+                </>
+              )}
             </div>
           ))}
         </aside>
@@ -1915,6 +1938,16 @@ function App() {
                 <button
                   className="context-menu-item"
                   onClick={() => {
+                    toggleFolderCollapsed(null);
+                    setFolderContextMenu(null);
+                  }}
+                >
+                  {isFolderCollapsed(null) ? '展开' : '收起'}
+                </button>
+                <div className="context-menu-divider" />
+                <button
+                  className="context-menu-item"
+                  onClick={() => {
                     renameDefaultFolder();
                     setFolderContextMenu(null);
                   }}
@@ -1934,6 +1967,16 @@ function App() {
               </>
             ) : (
               <>
+                <button
+                  className="context-menu-item"
+                  onClick={() => {
+                    if (folderContextMenu.folderId) toggleFolderCollapsed(folderContextMenu.folderId);
+                    setFolderContextMenu(null);
+                  }}
+                >
+                  {folderContextMenu.folderId && isFolderCollapsed(folderContextMenu.folderId) ? '展开' : '收起'}
+                </button>
+                <div className="context-menu-divider" />
                 <button
                   className="context-menu-item"
                   onClick={() => {
@@ -2021,18 +2064,33 @@ function App() {
               const endX = childPos.x;
               const endY = childPos.y + childPos.height / 2;
 
-              // Control Points:
-              // CP1: start.x + horizontal_gap / 2, start.y
-              // CP2: end.x - horizontal_gap / 2, end.y
+              // Connector (match reference): line -> circle -> short capsule -> node (ONLY on child side)
+              const dotR = 7;
+              const stubLen = 12;
+              const stubH = 10;
+              const endDotX = endX - dotR - stubLen;
+
+              // Control Points for the main curve between dots
               const cp1x = startX + HORIZONTAL_GAP / 2;
               const cp1y = startY;
-              const cp2x = endX - HORIZONTAL_GAP / 2;
+              const cp2x = endDotX - HORIZONTAL_GAP / 2;
               const cp2y = endY;
 
-              const d = `M ${startX} ${startY} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${endX} ${endY}`;
+              const d = `M ${startX} ${startY} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${endDotX} ${endY}`;
 
               return (
                 <React.Fragment key={`${node.id}-edge`}>
+                  {/* End stub: circle -> node */}
+                  {endX > endDotX + dotR && (
+                    <rect
+                      x={endDotX + dotR}
+                      y={endY - stubH / 2}
+                      width={Math.max(1, endX - (endDotX + dotR))}
+                      height={stubH}
+                      rx={stubH / 2}
+                      fill="rgba(255,255,255,0.9)"
+                    />
+                  )}
                   <path
                     d={d}
                     fill="none"
@@ -2040,8 +2098,15 @@ function App() {
                     strokeWidth={5}
                     strokeLinecap="round"
                   />
-                  <circle cx={startX} cy={startY} r={4} fill="rgba(255,255,255,0.9)" />
-                  <circle cx={endX} cy={endY} r={4} fill="rgba(255,255,255,0.9)" />
+                  {/* Dot on child side only */}
+                  <circle
+                    cx={endDotX}
+                    cy={endY}
+                    r={dotR}
+                    fill="rgba(60,66,70,0.9)"
+                    stroke="rgba(255,255,255,0.9)"
+                    strokeWidth={2}
+                  />
                 </React.Fragment>
               );
             })}
@@ -2350,26 +2415,44 @@ function App() {
                     style={{
                       width: '100%',
                       height: '100%',
-                        textAlign: pos.depth >= 2 ? 'center' : hasProgress || hasPriority ? 'left' : 'center',
+                        textAlign: pos.depth >= 2 ? 'left' : hasProgress || hasPriority ? 'left' : 'center',
                       lineHeight: `${nodeHeight}px`,
-                        paddingLeft: pos.depth >= 2 ? '0px' : `${leftPad}px`,
-                        paddingRight: pos.depth >= 2 ? '0px' : '20px',
+                        paddingLeft: `${pos.depth >= 2 && !(hasProgress || hasPriority) ? 6 : leftPad}px`,
+                        paddingRight: '20px',
+                        fontSize: pos.depth >= 2 ? 22 : pos.depth === 1 ? 22 : pos.depth === 0 ? 36 : undefined,
+                        fontWeight: pos.depth >= 2 ? 600 : pos.depth === 1 ? 700 : pos.depth === 0 ? 800 : undefined,
+                        color: pos.depth >= 2 ? 'rgba(255,255,255,.92)' : undefined,
                     }}
                   />
                 </div>
-                {hasChildren && (
+                {/* 展开/收起按钮：放在“圆点”上（线连到圆点，圆点再连到节点） */}
+                {hasChildren && node.id !== rootId && (
                   <button
-                    className="collapse-btn-external"
-                    style={{
-                      position: 'absolute',
-                        left: `${pos.x + nodeWidth + 10}px`,
-                        top: `${pos.y + nodeHeight / 2}px`,
-                        transform: 'translate(-50%, -50%)',
-                      transformOrigin: 'center',
-                    }}
+                    className="collapse-dot"
+                    type="button"
+                    title={node.collapsed ? '展开' : '收起'}
                     onClick={(e) => {
+                      e.preventDefault();
                       e.stopPropagation();
                       toggleCollapse(node.id);
+                    }}
+                    style={{
+                      position: 'absolute',
+                      // 与 SVG 的 endDotX/endY 保持一致：x = nodeLeft - (dotR + stubLen), y = nodeMidY
+                      transform: `translate(${pos.x - (7 + 12)}px, ${pos.y + nodeHeight / 2}px) translate(-50%, -50%)`,
+                      width: 18,
+                      height: 18,
+                      borderRadius: 999,
+                      border: '2px solid rgba(255,255,255,.9)',
+                      background: 'rgba(255,255,255,.06)',
+                      color: 'rgba(255,255,255,.95)',
+                      fontWeight: 900,
+                      fontSize: 12,
+                      lineHeight: 1,
+                      display: 'grid',
+                      placeItems: 'center',
+                      zIndex: 100,
+                      pointerEvents: 'auto',
                     }}
                   >
                     {node.collapsed ? '+' : '−'}
