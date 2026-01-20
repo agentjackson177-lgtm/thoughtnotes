@@ -650,10 +650,8 @@ function App() {
         return;
       }
       
-      // 如果正在“真正编辑文字”(readOnly=false)：不要触发新建节点等全局快捷键，让输入框自己处理
-      if (isActuallyEditing && !(e.metaKey || e.ctrlKey)) {
-        return;
-      }
+      // 如果正在“真正编辑文字”(readOnly=false)：让输入框自己处理（包括复制/粘贴）
+      if (isActuallyEditing) return;
 
       // 如果正在输入框中（但只读状态）：只处理 Ctrl/Cmd 快捷键、Tab 和 Enter 键
       if (isInInput && !(e.metaKey || e.ctrlKey) && e.key !== 'Tab' && e.key !== 'Enter') {
