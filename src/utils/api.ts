@@ -6,15 +6,18 @@ const envUrl = String((import.meta as any).env?.VITE_API_URL || '').trim();
 // Fallbacks:
 // - Render prod site → use your deployed API
 // - Local dev (vite default) → use local API
-const inferredUrl =
-  typeof window !== 'undefined' && window.location?.hostname === 'thoughtnotes.onrender.com'
-    ? 'https://mindmap-api-qcew.onrender.com'
-    : typeof window !== 'undefined' &&
-        (window.location?.hostname === 'localhost' || window.location?.hostname === '127.0.0.1')
-      ? 'http://localhost:10000'
-      : '';
+const inferCandidates = (): string[] => {
+  if (typeof window === 'undefined') return [];
+  const host = window.location?.hostname;
+  if (host === 'thoughtnotes.onrender.com') return ['https://mindmap-api-qcew.onrender.com'];
+  if (host === 'localhost' || host === '127.0.0.1') return ['http://localhost:11000', 'http://localhost:10000'];
+  return [];
+};
 
-const API_URL = normalizeBase(envUrl || inferredUrl);
+const envBase = envUrl ? normalizeBase(envUrl) : '';
+const inferredBases = inferCandidates().map(normalizeBase);
+const candidates = (envBase ? [envBase] : inferredBases).filter(Boolean);
+let apiBase = candidates[0] || '';
 
 const getToken = () => localStorage.getItem('auth_token');
 export const setToken = (token: string | null) => {
@@ -23,7 +26,7 @@ export const setToken = (token: string | null) => {
 };
 
 async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
-  if (!API_URL) {
+  if (!apiBase) {
     const err = new Error('missing_api_url');
     (err as any).status = 0;
     throw err;
@@ -33,24 +36,52 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   headers.set('Content-Type', 'application/json');
   if (token) headers.set('Authorization', `Bearer ${token}`);
 
-  const res = await fetch(`${API_URL}${path}`, { ...init, headers });
-  const text = await res.text();
-  let json: any = null;
-  try {
-    json = text ? JSON.parse(text) : null;
-  } catch {
-    // non-JSON response (often HTML 404/502)
-    const err = new Error('bad_response');
-    (err as any).status = res.status;
-    (err as any).raw = text?.slice?.(0, 200) ?? '';
-    throw err;
+  const startIndex = Math.max(0, candidates.indexOf(apiBase));
+  const ordered = [...candidates.slice(startIndex), ...candidates.slice(0, startIndex)];
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  let lastErr: unknown = null;
+  for (let i = 0; i < ordered.length; i++) {
+    const base = ordered[i];
+    const maxAttempts = ordered.length === 1 ? 4 : 1;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const res = await fetch(`${base}${path}`, { ...init, headers });
+        const text = await res.text();
+        let json: any = null;
+        try {
+          json = text ? JSON.parse(text) : null;
+        } catch {
+          const err = new Error('bad_response');
+          (err as any).status = res.status;
+          (err as any).raw = text?.slice?.(0, 200) ?? '';
+          throw err;
+        }
+        if (!res.ok) {
+          const err = new Error(json?.error || `http_${res.status}`);
+          (err as any).status = res.status;
+          throw err;
+        }
+        apiBase = base;
+        return json as T;
+      } catch (e: any) {
+        lastErr = e;
+        const msg = String(e?.message || '');
+        const status = Number(e?.status || 0);
+        const retryable =
+          e instanceof TypeError || msg.includes('Failed to fetch') || (msg === 'bad_response' && (status === 502 || status === 503));
+        const canRetrySameBase = retryable && attempt < maxAttempts;
+        if (canRetrySameBase) {
+          await sleep(700 * attempt);
+          continue;
+        }
+        const canTryNextBase = retryable && i < ordered.length - 1;
+        if (!canTryNextBase) throw e;
+        break;
+      }
+    }
   }
-  if (!res.ok) {
-    const err = new Error(json?.error || `http_${res.status}`);
-    (err as any).status = res.status;
-    throw err;
-  }
-  return json as T;
+  throw lastErr ?? new Error('unknown_error');
 }
 
 export async function apiRegister(params: {

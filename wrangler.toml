@@ -1,0 +1,13 @@
+name = "mindmap-api"
+main = "worker/src/index.js"
+compatibility_date = "2026-01-29"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+FRONTEND_ORIGIN = "https://your-pages-domain.pages.dev,http://localhost:*,http://127.0.0.1:*"
+JWT_SECRET = "change-me"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "mindmap-db"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"

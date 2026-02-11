@@ -16,9 +16,8 @@ services:
           name: mindmap-db
           property: connectionString
       - key: FRONTEND_ORIGIN
-        value: "https://thoughtnotes.onrender.com"
+        value: "https://thoughtnotes.onrender.com,http://localhost:5173,http://127.0.0.1:5173"
 
 databases:
   - name: mindmap-db
     plan: free
-

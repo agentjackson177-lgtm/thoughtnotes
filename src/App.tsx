@@ -381,6 +381,7 @@ function App() {
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [isUserDataLoaded, setIsUserDataLoaded] = useState(false);
+  const [cloudSyncEnabled, setCloudSyncEnabled] = useState(false);
   const [folders, setFolders] = useState<FolderMeta[]>([]);
   const [maps, setMaps] = useState<MapMeta[]>([
     { id: 'default', name: '默认导图', folderId: null, updatedAt: Date.now() },
@@ -416,7 +417,14 @@ function App() {
   const isPanning = useRef(false);
   const lastPoint = useRef<{ x: number; y: number } | null>(null);
   const draggingNodeId = useRef<string | null>(null);
-  const dragOverNodeId = useRef<string | null>(null);
+  const dragOverNodeId = useRef<null | { id: string; mode: 'child' | 'after' }>(null);
+  const pointerDragStart = useRef<null | { x: number; y: number; nodeId: string }>(null);
+  const pointerDragging = useRef(false);
+  const suppressClickRef = useRef(false);
+  const positionsRef = useRef<Record<string, { x: number; y: number; width: number; height: number }>>({});
+  const visibleNodesRef = useRef<MindNode[]>([]);
+  const offsetRef = useRef({ x: 0, y: 0 });
+  const scaleRef = useRef(1);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; nodeId: string } | null>(null);
   const [selectionBox, setSelectionBox] = useState<{ startX: number; startY: number; endX: number; endY: number } | null>(null);
   const isSelecting = useRef(false);
@@ -757,7 +765,7 @@ function App() {
     e.stopPropagation();
     e.dataTransfer.dropEffect = 'move';
     if (draggingNodeId.current && draggingNodeId.current !== nodeId && nodeId !== rootId) {
-      dragOverNodeId.current = nodeId;
+      dragOverNodeId.current = { id: nodeId, mode: 'child' };
       // 强制重新渲染以显示高亮
       setSelectedIds((prev) => new Set(prev));
     }
@@ -773,40 +781,106 @@ function App() {
       const y = (e.clientY - rect.top - offset.y) / scale;
       
       // 查找鼠标位置下的节点
-      let targetNodeId: string | null = null;
+      let target: null | { id: string; mode: 'child' | 'after' } = null;
       for (const node of visibleNodes) {
         const pos = positions[node.id];
         if (!pos) continue;
         if (x >= pos.x && x <= pos.x + (pos.width || 140) &&
             y >= pos.y && y <= pos.y + (pos.height || 40)) {
           if (node.id !== draggingNodeId.current && node.id !== rootId) {
-            targetNodeId = node.id;
+            target = { id: node.id, mode: 'child' };
             break;
           }
         }
       }
       
-      if (targetNodeId !== dragOverNodeId.current) {
-        dragOverNodeId.current = targetNodeId;
+      if (target?.id !== dragOverNodeId.current?.id || target?.mode !== dragOverNodeId.current?.mode) {
+        dragOverNodeId.current = target;
         setSelectedIds((prev) => new Set(prev));
       }
     }
   };
 
-  const resolveDropTargetId = (): string | null => {
-    // Prefer dragOver id, fallback to hit-test by pointer position (best-effort)
-    if (dragOverNodeId.current) return dragOverNodeId.current;
+  const findDragTarget = (clientX: number, clientY: number): null | { id: string; mode: 'child' | 'after' } => {
+    if (!canvasShellRef.current) return null;
+    const rect = canvasShellRef.current.getBoundingClientRect();
+    const x = (clientX - rect.left - offsetRef.current.x) / scaleRef.current;
+    const y = (clientY - rect.top - offsetRef.current.y) / scaleRef.current;
+    for (const node of visibleNodesRef.current) {
+      const pos = positionsRef.current[node.id];
+      if (!pos) continue;
+      if (x >= pos.x && x <= pos.x + (pos.width || 140) && y >= pos.y && y <= pos.y + (pos.height || 40)) {
+        if (node.id !== draggingNodeId.current && node.id !== rootId) {
+          return { id: node.id, mode: 'child' };
+        }
+      }
+    }
     return null;
   };
 
+  const handleNodePointerDown = (e: React.PointerEvent, nodeId: string) => {
+    if (nodeId === rootId) return;
+    if (mindmapEditingId === nodeId) return;
+    pointerDragStart.current = { x: e.clientX, y: e.clientY, nodeId };
+    pointerDragging.current = false;
+    suppressClickRef.current = false;
+    const el = e.currentTarget as HTMLElement;
+    if (el.setPointerCapture) el.setPointerCapture(e.pointerId);
+  };
+
+  const handleNodePointerMove = (e: React.PointerEvent) => {
+    if (!pointerDragStart.current) return;
+    const { x, y, nodeId } = pointerDragStart.current;
+    const dx = e.clientX - x;
+    const dy = e.clientY - y;
+    if (!pointerDragging.current && Math.hypot(dx, dy) < 4) return;
+    if (!pointerDragging.current) {
+      pointerDragging.current = true;
+      draggingNodeId.current = nodeId;
+      if (!selectedIds.has(nodeId)) {
+        setSelectedIds(new Set([nodeId]));
+        setSelected(nodeId);
+      }
+    }
+    const target = findDragTarget(e.clientX, e.clientY);
+    if (target?.id !== dragOverNodeId.current?.id || target?.mode !== dragOverNodeId.current?.mode) {
+      dragOverNodeId.current = target;
+      setSelectedIds((prev) => new Set(prev));
+    }
+    e.preventDefault();
+  };
+
+  const handleNodePointerUp = (e: React.PointerEvent) => {
+    if (!pointerDragStart.current) return;
+    if (pointerDragging.current) {
+      suppressClickRef.current = true;
+      handleNodeDragEnd();
+    }
+    pointerDragStart.current = null;
+    pointerDragging.current = false;
+    const el = e.currentTarget as HTMLElement;
+    if (el.releasePointerCapture) el.releasePointerCapture(e.pointerId);
+  };
+
+  const resolveDropTarget = (): null | { targetId: string; mode: 'child' | 'after' } => {
+    if (!dragOverNodeId.current) return null;
+    return { targetId: dragOverNodeId.current.id, mode: dragOverNodeId.current.mode };
+  };
+
   const handleNodeDragEnd = (e?: React.DragEvent) => {
-    const targetId = resolveDropTargetId();
+    const dropTarget = resolveDropTarget();
+    const targetId = dropTarget?.targetId ?? null;
+    const dropMode = dropTarget?.mode ?? null;
       const draggedId = draggingNodeId.current;
     
-    if (draggedId && targetId && draggedId !== targetId) {
+    if (draggedId && targetId && dropMode && draggedId !== targetId) {
+      const targetNode = nodes[targetId];
+      const newParentIdForAfter = targetNode?.parentId ?? null;
+
       // 如果拖拽的节点在多选中，批量移动所有选中的节点
       if (selectedIds.has(draggedId) && selectedIds.size > 1) {
         const idsToMove = Array.from(selectedIds).filter((id) => id !== rootId && id !== targetId);
+        let insertAfterId = targetId;
         idsToMove.forEach(id => {
           // 检查不能移动到自己的子节点
           const node = nodes[id];
@@ -818,7 +892,13 @@ function App() {
               return isDescendant(n.parentId, ancestorId);
             };
             if (!isDescendant(targetId, id)) {
-              moveNode(id, targetId);
+              if (dropMode === 'after') {
+                if (!newParentIdForAfter) return;
+                moveNode(id, newParentIdForAfter, insertAfterId);
+                insertAfterId = id;
+              } else {
+                moveNode(id, targetId);
+              }
             }
           }
         });
@@ -831,7 +911,11 @@ function App() {
           return isDescendant(n.parentId, ancestorId);
         };
         if (!isDescendant(targetId, draggedId)) {
-      moveNode(draggedId, targetId);
+          if (dropMode === 'after') {
+            if (newParentIdForAfter) moveNode(draggedId, newParentIdForAfter, targetId);
+          } else {
+            moveNode(draggedId, targetId);
+          }
     }
       }
     }
@@ -857,8 +941,10 @@ function App() {
   useEffect(() => {
     let cancelled = false;
     setIsUserDataLoaded(false);
+    setCloudSyncEnabled(false);
     if (!currentUser) {
       setIsUserDataLoaded(false);
+      setCloudSyncEnabled(false);
       return;
     }
 
@@ -937,11 +1023,15 @@ function App() {
           setDefaultFolderDeleted(false);
         }
 
-        if (!cancelled) setIsUserDataLoaded(true);
+        if (!cancelled) {
+          setCloudSyncEnabled(true);
+          setIsUserDataLoaded(true);
+        }
       } catch (e) {
         console.error(e);
         if (!cancelled) {
           alert('云端数据加载失败，请检查网络或稍后重试');
+          setCloudSyncEnabled(false);
           setIsUserDataLoaded(true); // 允许继续使用（但不会同步）
         }
       }
@@ -954,7 +1044,7 @@ function App() {
 
   // 保存用户数据（云端自动同步：debounce，避免每次小改动都打请求）
   useEffect(() => {
-    if (!currentUser || !isUserDataLoaded) return;
+    if (!currentUser || !isUserDataLoaded || !cloudSyncEnabled) return;
 
     const userData: UserData = {
       folders,
@@ -977,7 +1067,7 @@ function App() {
     return () => {
       if (saveCloudTimerRef.current) window.clearTimeout(saveCloudTimerRef.current);
     };
-  }, [currentUser, isUserDataLoaded, folders, maps, mapStates, documents, flowcharts, flowchartStates]);
+  }, [currentUser, isUserDataLoaded, cloudSyncEnabled, folders, maps, mapStates, documents, flowcharts, flowchartStates]);
 
   useEffect(() => {
     setMapStates((prev) => ({
@@ -1378,7 +1468,14 @@ function App() {
     } catch (e: any) {
       const msg = String(e?.message || '');
       if (msg === 'invalid_credentials') {
-        alert('用户名/邮箱或密码错误');
+        const host = typeof window !== 'undefined' ? window.location?.hostname : '';
+        if (host === 'localhost' || host === '127.0.0.1') {
+          alert(
+            '用户名/邮箱或密码错误。\n\n提示：本地开发如果后端用了 USE_MEMORY_DB=1（内存模式），重启 API 会清空账号，需要重新注册一次。',
+          );
+        } else {
+          alert('用户名/邮箱或密码错误');
+        }
         return;
       }
       if (msg === 'missing_api_url') {
@@ -1390,7 +1487,9 @@ function App() {
         return;
       }
       if (msg.includes('Failed to fetch')) {
-        alert('无法连接云端 API（网络/CORS）。请确认 mindmap-api 正常运行，并且 FRONTEND_ORIGIN= https://thoughtnotes.onrender.com 。');
+        const origin =
+          typeof window !== 'undefined' && window.location?.origin ? window.location.origin : 'https://thoughtnotes.onrender.com';
+        alert(`无法连接云端 API（网络/CORS）。请确认 mindmap-api 正常运行，并且 FRONTEND_ORIGIN= ${origin} 。`);
         return;
       }
       alert('登录失败，请重试（可打开浏览器控制台查看错误）');
@@ -1433,7 +1532,11 @@ function App() {
       else if (msg === 'bad_response')
         alert('云端 API 返回异常（可能是 API 未启动/502）。请打开 mindmap-api 的 Logs 查看错误并重启部署。');
       else if (msg.includes('Failed to fetch'))
-        alert('无法连接云端 API（网络/CORS）。请确认 mindmap-api 正常运行，并且 FRONTEND_ORIGIN= https://thoughtnotes.onrender.com 。');
+        alert(
+          `无法连接云端 API（网络/CORS）。请确认 mindmap-api 正常运行，并且 FRONTEND_ORIGIN= ${
+            typeof window !== 'undefined' && window.location?.origin ? window.location.origin : 'https://thoughtnotes.onrender.com'
+          } 。`,
+        );
       else alert('注册失败，请重试（可打开浏览器控制台查看错误）');
     }
   };
@@ -1442,6 +1545,7 @@ function App() {
     setToken(null);
     setCurrentUserState(null);
     setIsUserDataLoaded(false);
+    setCloudSyncEnabled(false);
     setFolders([]);
     setMaps([]);
     setMapStates({});
@@ -1468,6 +1572,10 @@ function App() {
 
   const visibleNodes = allNodes.filter((n) => isVisible(n.id));
   const rootCollapsed = !defaultFolderDeleted && isFolderCollapsed(null);
+  positionsRef.current = positions;
+  visibleNodesRef.current = visibleNodes;
+  offsetRef.current = offset;
+  scaleRef.current = scale;
 
   // 启动时先恢复云端登录态（避免闪一下登录页）
   if (authBooting) {
@@ -2133,7 +2241,7 @@ function App() {
           {visibleNodes.map((node) => {
             const pos = positions[node.id] ?? { x: 0, y: 0, depth: 0, width: 140, height: 40 };
               const isDragging = !!draggingNodeId.current && selectedIds.has(node.id);
-            const isDragOver = dragOverNodeId.current === node.id;
+            const isDragOver = dragOverNodeId.current?.id === node.id;
             const nodeWidth = pos.width || 140;
             const nodeHeight = pos.height || 40;
             const hasChildren = node.children.length > 0;
@@ -2158,7 +2266,7 @@ function App() {
                       e.preventDefault();
                       e.stopPropagation();
                       if (draggingNodeId.current && draggingNodeId.current !== node.id && node.id !== rootId) {
-                        dragOverNodeId.current = node.id;
+                        dragOverNodeId.current = { id: node.id, mode: 'child' };
                       }
                     }}
                     onDragLeave={(e) => {
@@ -2169,18 +2277,26 @@ function App() {
                       const x = e.clientX;
                       const y = e.clientY;
                       if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
-                        if (dragOverNodeId.current === node.id) {
+                        if (dragOverNodeId.current?.id === node.id) {
                           dragOverNodeId.current = null;
                         }
                       }
                     }}
                   onDragEnd={handleNodeDragEnd}
-                    onPointerDown={(e) => {
-                      e.stopPropagation();
-                    }}
+                  onPointerDown={(e) => {
+                    e.stopPropagation();
+                    handleNodePointerDown(e, node.id);
+                  }}
+                  onPointerMove={handleNodePointerMove}
+                  onPointerUp={handleNodePointerUp}
+                  onPointerCancel={handleNodePointerUp}
                   onClick={(e) => {
                     e.stopPropagation();
-                      if (e.metaKey || e.ctrlKey) {
+                    if (suppressClickRef.current) {
+                      suppressClickRef.current = false;
+                      return;
+                    }
+                    if (e.metaKey || e.ctrlKey) {
                         // Ctrl/Cmd + 点击：切换选中状态
                         setSelectedIds((prev) => {
                           const next = new Set(prev);
