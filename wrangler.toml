@@ -2,7 +2,6 @@ name = "mindmap-api"
 main = "worker/src/index.js"
 compatibility_date = "2026-01-29"
 compatibility_flags = ["nodejs_compat"]
-pages_build_output_dir = "dist"
 
 [vars]
 FRONTEND_ORIGIN = "https://thoughtnotes.pages.dev,http://localhost:*,http://127.0.0.1:*"
