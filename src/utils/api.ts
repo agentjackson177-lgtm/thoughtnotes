@@ -37,6 +37,7 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   headers.set('Content-Type', 'application/json');
   if (token) headers.set('Authorization', `Bearer ${token}`);
 
+  const timeoutMs = 15000;
   const startIndex = Math.max(0, candidates.indexOf(apiBase));
   const ordered = [...candidates.slice(startIndex), ...candidates.slice(0, startIndex)];
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -47,7 +48,27 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
     const maxAttempts = ordered.length === 1 ? 4 : 1;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        const res = await fetch(`${base}${path}`, { ...init, headers });
+        const controller = new AbortController();
+        let timeoutId: ReturnType<typeof globalThis.setTimeout> | null = null;
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timeoutId = globalThis.setTimeout(() => {
+            try {
+              controller.abort();
+            } catch {
+            }
+            reject(new Error('timeout'));
+          }, timeoutMs);
+        });
+
+        let res: Response;
+        try {
+          res = (await Promise.race([
+            fetch(`${base}${path}`, { ...init, headers, signal: controller.signal }),
+            timeoutPromise,
+          ])) as Response;
+        } finally {
+          if (timeoutId) globalThis.clearTimeout(timeoutId);
+        }
         const text = await res.text();
         let json: any = null;
         try {
@@ -70,7 +91,10 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
         const msg = String(e?.message || '');
         const status = Number(e?.status || 0);
         const retryable =
-          e instanceof TypeError || msg.includes('Failed to fetch') || (msg === 'bad_response' && (status === 502 || status === 503));
+          msg === 'timeout' ||
+          e instanceof TypeError ||
+          msg.includes('Failed to fetch') ||
+          (msg === 'bad_response' && (status === 502 || status === 503));
         const canRetrySameBase = retryable && attempt < maxAttempts;
         if (canRetrySameBase) {
           await sleep(700 * attempt);

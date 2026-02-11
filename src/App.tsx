@@ -1424,6 +1424,12 @@ function App() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      const existingToken = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+      if (!existingToken) {
+        if (!cancelled) setCurrentUserState(null);
+        if (!cancelled) setAuthBooting(false);
+        return;
+      }
       try {
         const me = await apiMe();
         if (cancelled) return;
