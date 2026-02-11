@@ -1,0 +1,4 @@
+oauth_token = "jPGBSsJDXNZHF8y_YNZKZ_ocKr2p3nIDCBMTTe_hxRQ.rFtojlI6dZfEmOPT72JSy0zsUW6wFXIweo8XX3ehiIE"
+expiration_time = "2026-02-11T08:13:51.660Z"
+refresh_token = "dS2Rz2-xCSZT-ziwttvk-yjgz06LSwRyF3MVPdp7ruQ.O0INnMcWOwl_pWvS-Heqy46yBb5k8S3Rvd6qCP5A2kQ"
+scopes = [ "account:read", "user:read", "workers:write", "workers_kv:write", "workers_routes:write", "workers_scripts:write", "workers_tail:read", "d1:write", "pages:write", "zone:read", "ssl_certs:write", "ai:write", "queues:write", "pipelines:write", "secrets_store:write", "containers:write", "cloudchamber:write", "connectivity:admin", "offline_access" ]

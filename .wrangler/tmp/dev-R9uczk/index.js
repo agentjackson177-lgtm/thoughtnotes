@@ -2884,12 +2884,12 @@ var require_bcrypt = __commonJS({
   }
 });
 
-// .wrangler/tmp/bundle-PQe5iF/middleware-loader.entry.ts
+// .wrangler/tmp/bundle-lXmudu/middleware-loader.entry.ts
 init_modules_watch_stub();
 init_virtual_unenv_global_polyfill_cloudflare_unenv_preset_node_process();
 init_performance2();
 
-// .wrangler/tmp/bundle-PQe5iF/middleware-insertion-facade.js
+// .wrangler/tmp/bundle-lXmudu/middleware-insertion-facade.js
 init_modules_watch_stub();
 init_virtual_unenv_global_polyfill_cloudflare_unenv_preset_node_process();
 init_performance2();
@@ -3013,6 +3013,7 @@ var requireAuth = /* @__PURE__ */ __name(async (req, env2) => {
 }, "requireAuth");
 var route = /* @__PURE__ */ __name((url) => {
   const path = url.pathname || "/";
+  if (path === "/") return { name: "root" };
   if (path === "/healthz") return { name: "healthz" };
   if (path === "/api/auth/register") return { name: "register" };
   if (path === "/api/auth/login") return { name: "login" };
@@ -3030,6 +3031,9 @@ var src_default = {
     }
     try {
       const r = route(url);
+      if (r.name === "root") {
+        return withCors(request, env2, json({ ok: true }));
+      }
       if (r.name === "healthz") {
         return withCors(request, env2, json({ ok: true }));
       }
@@ -3233,7 +3237,7 @@ var jsonError = /* @__PURE__ */ __name(async (request, env2, _ctx, middlewareCtx
 }, "jsonError");
 var middleware_miniflare3_json_error_default = jsonError;
 
-// .wrangler/tmp/bundle-PQe5iF/middleware-insertion-facade.js
+// .wrangler/tmp/bundle-lXmudu/middleware-insertion-facade.js
 var __INTERNAL_WRANGLER_MIDDLEWARE__ = [
   middleware_ensure_req_body_drained_default,
   middleware_miniflare3_json_error_default
@@ -3268,7 +3272,7 @@ function __facade_invoke__(request, env2, ctx, dispatch, finalMiddleware) {
 }
 __name(__facade_invoke__, "__facade_invoke__");
 
-// .wrangler/tmp/bundle-PQe5iF/middleware-loader.entry.ts
+// .wrangler/tmp/bundle-lXmudu/middleware-loader.entry.ts
 var __Facade_ScheduledController__ = class ___Facade_ScheduledController__ {
   constructor(scheduledTime, cron, noRetry) {
     this.scheduledTime = scheduledTime;

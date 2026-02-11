@@ -4,12 +4,13 @@ const normalizeBase = (u: string) => u.replace(/\/+$/, '');
 
 const envUrl = String((import.meta as any).env?.VITE_API_URL || '').trim();
 // Fallbacks:
-// - Render prod site → use your deployed API
+// - Known prod sites → use your deployed API
 // - Local dev (vite default) → use local API
 const inferCandidates = (): string[] => {
   if (typeof window === 'undefined') return [];
   const host = window.location?.hostname;
   if (host === 'thoughtnotes.onrender.com') return ['https://mindmap-api-qcew.onrender.com'];
+  if (host === 'thoughtnotes.pages.dev') return ['https://mindmap-api.agent-jackson177.workers.dev'];
   if (host === 'localhost' || host === '127.0.0.1') return ['http://localhost:11000', 'http://localhost:10000'];
   return [];
 };

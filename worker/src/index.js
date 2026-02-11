@@ -140,6 +140,7 @@ const requireAuth = async (req, env) => {
 
 const route = (url) => {
   const path = url.pathname || '/';
+  if (path === '/') return { name: 'root' };
   if (path === '/healthz') return { name: 'healthz' };
   if (path === '/api/auth/register') return { name: 'register' };
   if (path === '/api/auth/login') return { name: 'login' };
@@ -160,6 +161,10 @@ export default {
 
     try {
       const r = route(url);
+
+      if (r.name === 'root') {
+        return withCors(request, env, json({ ok: true }));
+      }
 
       if (r.name === 'healthz') {
         return withCors(request, env, json({ ok: true }));

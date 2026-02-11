@@ -1479,7 +1479,9 @@ function App() {
         return;
       }
       if (msg === 'missing_api_url') {
-        alert('未配置云端 API 地址：请在 Render 的 Static Site 环境变量设置 VITE_API_URL=https://mindmap-api-qcew.onrender.com 并重新部署。');
+        alert(
+          '未配置云端 API 地址：请在 Cloudflare Pages 的 Environment variables 设置 VITE_API_URL=https://mindmap-api.agent-jackson177.workers.dev 并重新部署。',
+        );
         return;
       }
       if (msg === 'bad_response') {
@@ -1528,7 +1530,9 @@ function App() {
       if (msg === 'username_taken') alert('用户名已存在');
       else if (msg === 'email_taken') alert('邮箱已被注册');
       else if (msg === 'missing_api_url')
-        alert('未配置云端 API 地址：请在 Render 的 Static Site 环境变量设置 VITE_API_URL=https://mindmap-api-qcew.onrender.com 并重新部署。');
+        alert(
+          '未配置云端 API 地址：请在 Cloudflare Pages 的 Environment variables 设置 VITE_API_URL=https://mindmap-api.agent-jackson177.workers.dev 并重新部署。',
+        );
       else if (msg === 'bad_response')
         alert('云端 API 返回异常（可能是 API 未启动/502）。请打开 mindmap-api 的 Logs 查看错误并重启部署。');
       else if (msg.includes('Failed to fetch'))

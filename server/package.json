@@ -6,7 +6,11 @@
   "main": "src/index.js",
   "scripts": {
     "dev": "node --watch src/index.js",
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "d1:local:init": "cd .. && npm run d1:local:init",
+    "d1:remote:init": "cd .. && npm run d1:remote:init",
+    "dev:worker": "cd .. && npm run dev:worker --",
+    "deploy:worker": "cd .. && npm run deploy:worker --"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
