@@ -1494,6 +1494,10 @@ function App() {
         alert('云端 API 返回异常（可能是 API 未启动/502）。请打开 mindmap-api 的 Logs 查看错误并重启部署。');
         return;
       }
+      if (msg === 'timeout') {
+        alert('连接云端超时，请检查网络后重试');
+        return;
+      }
       if (msg.includes('Failed to fetch')) {
         const origin =
           typeof window !== 'undefined' && window.location?.origin ? window.location.origin : 'https://thoughtnotes.onrender.com';
@@ -1541,6 +1545,7 @@ function App() {
         );
       else if (msg === 'bad_response')
         alert('云端 API 返回异常（可能是 API 未启动/502）。请打开 mindmap-api 的 Logs 查看错误并重启部署。');
+      else if (msg === 'timeout') alert('连接云端超时，请检查网络后重试');
       else if (msg.includes('Failed to fetch'))
         alert(
           `无法连接云端 API（网络/CORS）。请确认 mindmap-api 正常运行，并且 FRONTEND_ORIGIN= ${
