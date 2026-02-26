@@ -10,7 +10,7 @@ const inferCandidates = (): string[] => {
   if (typeof window === 'undefined') return [];
   const host = window.location?.hostname;
   if (host === 'thoughtnotes.onrender.com') return ['https://mindmap-api-qcew.onrender.com'];
-  if (host === 'thoughtnotes.pages.dev') return ['https://mindmap-api.agent-jackson177.workers.dev'];
+  if (host === 'thoughtnotes.pages.dev' || host?.endsWith?.('.pages.dev')) return ['https://mindmap-api.agent-jackson177.workers.dev'];
   if (host === 'localhost' || host === '127.0.0.1') return ['http://localhost:11000', 'http://localhost:10000'];
   return [];
 };

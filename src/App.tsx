@@ -1449,11 +1449,12 @@ function App() {
 
   // 登录/注册处理（云端版本：账号密码在服务端校验；文件数据存到 Postgres）
   const handleLogin = async () => {
-    if (!authUsername || !authPassword) {
+    const usernameOrEmail = authUsername.trim();
+    if (!usernameOrEmail || !authPassword) {
       alert('请输入用户名/邮箱和密码');
       return;
     }
-    if (!(isValidUsername(authUsername) || isValidEmail(authUsername))) {
+    if (!(isValidUsername(usernameOrEmail) || isValidEmail(usernameOrEmail))) {
       alert('请输入正确的用户名（3-20 位，字母/数字/_/-）或邮箱');
       return;
     }
@@ -1463,7 +1464,7 @@ function App() {
     }
 
     try {
-      const { token, user } = await apiLogin({ usernameOrEmail: authUsername, password: authPassword });
+      const { token, user } = await apiLogin({ usernameOrEmail, password: authPassword });
       setToken(token);
       setIsUserDataLoaded(false);
       setCurrentUserState(user);
@@ -1495,7 +1496,9 @@ function App() {
         return;
       }
       if (msg === 'timeout') {
-        alert('连接云端超时，请检查网络后重试');
+        alert(
+          '连接云端超时。\n\n排查建议：\n1) 用手机浏览器直接打开云端 API 地址（VITE_API_URL）看能否访问；\n2) 若在移动网络下访问不了 workers.dev，建议给 API 绑定自定义域名（例如 api.xxx.com）并把 Pages 的 VITE_API_URL 改成该域名。',
+        );
         return;
       }
       if (msg.includes('Failed to fetch')) {
@@ -1509,15 +1512,17 @@ function App() {
   };
 
   const handleRegister = async () => {
-    if (!authUsername || !authEmail || !authPassword) {
+    const username = authUsername.trim();
+    const email = authEmail.trim();
+    if (!username || !email || !authPassword) {
       alert('请填写所有字段');
       return;
     }
-    if (!isValidUsername(authUsername)) {
+    if (!isValidUsername(username)) {
       alert('用户名格式不正确：3-20 位，只能包含字母/数字/_/-');
       return;
     }
-    if (!isValidEmail(authEmail)) {
+    if (!isValidEmail(email)) {
       alert('邮箱格式不正确');
       return;
     }
@@ -1527,7 +1532,7 @@ function App() {
     }
 
     try {
-      const { token, user } = await apiRegister({ username: authUsername, email: authEmail, password: authPassword });
+      const { token, user } = await apiRegister({ username, email, password: authPassword });
       setToken(token);
       setIsUserDataLoaded(false);
       setCurrentUserState(user);
@@ -1545,7 +1550,10 @@ function App() {
         );
       else if (msg === 'bad_response')
         alert('云端 API 返回异常（可能是 API 未启动/502）。请打开 mindmap-api 的 Logs 查看错误并重启部署。');
-      else if (msg === 'timeout') alert('连接云端超时，请检查网络后重试');
+      else if (msg === 'timeout')
+        alert(
+          '连接云端超时。\n\n排查建议：\n1) 用手机浏览器直接打开云端 API 地址（VITE_API_URL）看能否访问；\n2) 若在移动网络下访问不了 workers.dev，建议给 API 绑定自定义域名（例如 api.xxx.com）并把 Pages 的 VITE_API_URL 改成该域名。',
+        );
       else if (msg.includes('Failed to fetch'))
         alert(
           `无法连接云端 API（网络/CORS）。请确认 mindmap-api 正常运行，并且 FRONTEND_ORIGIN= ${
@@ -1631,9 +1639,13 @@ function App() {
               <input
                 type="text"
                 className="auth-input"
-                placeholder="用户名"
+                placeholder={authMode === 'login' ? '用户名或邮箱' : '用户名'}
                 value={authUsername}
                 onChange={(e) => setAuthUsername(e.target.value)}
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                inputMode={authMode === 'login' ? 'email' : 'text'}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     authMode === 'login' ? handleLogin() : handleRegister();
@@ -1647,6 +1659,10 @@ function App() {
                   placeholder="邮箱"
                   value={authEmail}
                   onChange={(e) => setAuthEmail(e.target.value)}
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  inputMode="email"
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       handleRegister();
@@ -1660,6 +1676,9 @@ function App() {
                 placeholder="密码"
                 value={authPassword}
                 onChange={(e) => setAuthPassword(e.target.value)}
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     authMode === 'login' ? handleLogin() : handleRegister();
