@@ -411,6 +411,7 @@ function App() {
   const [folderContextMenu, setFolderContextMenu] = useState<null | { x: number; y: number; folderId: string | null }>(
     null,
   );
+  const longPressTimerRef = useRef<number | null>(null);
   const [collapsedFolderKeys, setCollapsedFolderKeys] = useState<Set<string>>(() => new Set());
   const [moveDialog, setMoveDialog] = useState<null | { type: 'map' | 'document' | 'flowchart'; id: string }>(null);
   const [moveDialogTarget, setMoveDialogTarget] = useState<string>('root');
@@ -442,6 +443,7 @@ function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importFolderIdRef = useRef<string | null>(null);
   const [mindmapEditingId, setMindmapEditingId] = useState<string | null>(null);
+  const [showSidebar, setShowSidebar] = useState(false);
   const saveCloudTimerRef = useRef<number | null>(null);
 
   const {
@@ -747,63 +749,7 @@ function App() {
     };
   }, []);
 
-  const handleNodeDragStart = (e: React.DragEvent, nodeId: string) => {
-    if (nodeId === rootId) {
-      e.preventDefault();
-      return; // 不能拖拽根节点
-    }
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', ''); // 某些浏览器需要这个
-    draggingNodeId.current = nodeId;
-    // 如果当前节点在多选中，保持多选状态；否则单选
-    if (!selectedIds.has(nodeId)) {
-      setSelectedIds(new Set([nodeId]));
-    setSelected(nodeId);
-    }
-    // 清除之前的高亮
-    dragOverNodeId.current = null;
-  };
 
-  const handleNodeDragOver = (e: React.DragEvent, nodeId: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    e.dataTransfer.dropEffect = 'move';
-    if (draggingNodeId.current && draggingNodeId.current !== nodeId && nodeId !== rootId) {
-      dragOverNodeId.current = { id: nodeId, mode: 'child' };
-      // 强制重新渲染以显示高亮
-      setSelectedIds((prev) => new Set(prev));
-    }
-  };
-
-  const handleCanvasDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    // 在 canvas 上拖动时，通过鼠标位置查找目标节点
-    if (draggingNodeId.current && canvasShellRef.current) {
-      const rect = canvasShellRef.current.getBoundingClientRect();
-      const x = (e.clientX - rect.left - offset.x) / scale;
-      const y = (e.clientY - rect.top - offset.y) / scale;
-      
-      // 查找鼠标位置下的节点
-      let target: null | { id: string; mode: 'child' | 'after' } = null;
-      for (const node of visibleNodes) {
-        const pos = positions[node.id];
-        if (!pos) continue;
-        if (x >= pos.x && x <= pos.x + (pos.width || 140) &&
-            y >= pos.y && y <= pos.y + (pos.height || 40)) {
-          if (node.id !== draggingNodeId.current && node.id !== rootId) {
-            target = { id: node.id, mode: 'child' };
-            break;
-          }
-        }
-      }
-      
-      if (target?.id !== dragOverNodeId.current?.id || target?.mode !== dragOverNodeId.current?.mode) {
-        dragOverNodeId.current = target;
-        setSelectedIds((prev) => new Set(prev));
-      }
-    }
-  };
 
   const findDragTarget = (clientX: number, clientY: number): null | { id: string; mode: 'child' | 'after' } => {
     if (!canvasShellRef.current) return null;
@@ -823,22 +769,29 @@ function App() {
   };
 
   const handleNodePointerDown = (e: React.PointerEvent, nodeId: string) => {
-    if (nodeId === rootId) return;
-    if (mindmapEditingId === nodeId) return;
+    if (nodeId === rootId || mindmapEditingId === nodeId) return;
+
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     pointerDragStart.current = { x: e.clientX, y: e.clientY, nodeId };
     pointerDragging.current = false;
     suppressClickRef.current = false;
-    const el = e.currentTarget as HTMLElement;
-    if (el.setPointerCapture) el.setPointerCapture(e.pointerId);
+
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = window.setTimeout(() => {
+      handleContextMenu(e, nodeId);
+      pointerDragStart.current = null; // Prevent drag after long press
+    }, 500);
   };
 
   const handleNodePointerMove = (e: React.PointerEvent) => {
     if (!pointerDragStart.current) return;
+
     const { x, y, nodeId } = pointerDragStart.current;
     const dx = e.clientX - x;
     const dy = e.clientY - y;
-    if (!pointerDragging.current && Math.hypot(dx, dy) < 4) return;
-    if (!pointerDragging.current) {
+
+    if (!pointerDragging.current && Math.hypot(dx, dy) > 5) {
+      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
       pointerDragging.current = true;
       draggingNodeId.current = nodeId;
       if (!selectedIds.has(nodeId)) {
@@ -846,24 +799,29 @@ function App() {
         setSelected(nodeId);
       }
     }
-    const target = findDragTarget(e.clientX, e.clientY);
-    if (target?.id !== dragOverNodeId.current?.id || target?.mode !== dragOverNodeId.current?.mode) {
-      dragOverNodeId.current = target;
-      setSelectedIds((prev) => new Set(prev));
+
+    if (pointerDragging.current) {
+      const target = findDragTarget(e.clientX, e.clientY);
+      if (target?.id !== dragOverNodeId.current?.id || target?.mode !== dragOverNodeId.current?.mode) {
+        dragOverNodeId.current = target;
+        setSelectedIds((prev) => new Set(prev)); // Force re-render for highlight
+      }
     }
-    e.preventDefault();
   };
 
   const handleNodePointerUp = (e: React.PointerEvent) => {
-    if (!pointerDragStart.current) return;
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+
     if (pointerDragging.current) {
-      suppressClickRef.current = true;
       handleNodeDragEnd();
+    } else if (pointerDragStart.current) {
+      // This was a click, not a drag or long press
+      // The onClick handler will manage selection
     }
+
     pointerDragStart.current = null;
     pointerDragging.current = false;
-    const el = e.currentTarget as HTMLElement;
-    if (el.releasePointerCapture) el.releasePointerCapture(e.pointerId);
+    (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
   };
 
   const resolveDropTarget = (): null | { targetId: string; mode: 'child' | 'after' } => {
@@ -1235,6 +1193,7 @@ function App() {
     setViewMode('mindmap');
     setCurrentDocumentId(null);
     importData(next);
+    setShowSidebar(false);
   };
 
   const handleCreateDocument = (folderId: string | null) => {
@@ -1297,6 +1256,7 @@ function App() {
   const handleSwitchDocument = (id: string) => {
     setCurrentDocumentId(id);
     setViewMode('document');
+    setShowSidebar(false);
   };
 
   const handleSwitchFlowchart = (id: string) => {
@@ -1309,6 +1269,7 @@ function App() {
     setViewMode('flowchart');
     setCurrentDocumentId(null);
     setCurrentMapId('default');
+    setShowSidebar(false);
   };
 
   const handleUpdateFlowchartState = (state: ReturnType<typeof createInitialState>) => {
@@ -1785,6 +1746,9 @@ function App() {
   return (
     <div className="app">
       <div className="toolbar">
+        <button className="button" onClick={() => setShowSidebar(!showSidebar)} title="切换侧边栏">
+          ☰
+        </button>
         <div className="title">轻量思维导图</div>
         <span className="badge">MVP</span>
         <div style={{ flex: 1 }} />
@@ -1880,8 +1844,9 @@ function App() {
         )}
       </div>
 
-      <div className="main">
-        <aside className="sidebar">
+      <div className={`main ${showSidebar ? 'sidebar-open' : ''}`}>
+        {showSidebar && <div className="sidebar-overlay" onClick={() => setShowSidebar(false)} />}
+        <aside className={`sidebar ${showSidebar ? 'show' : ''}`}>
           <div className="sidebar-header">
             <button className="icon-btn" onClick={handleCreateFolder} title="新建文件夹">
               📁+
@@ -2276,11 +2241,6 @@ function App() {
           onPointerMove={movePan}
           onPointerUp={endPan}
           onPointerLeave={endPan}
-          onDragOver={handleCanvasDragOver}
-          onDrop={(e) => {
-            e.preventDefault();
-            handleNodeDragEnd();
-          }}
         >
           <svg
             className="canvas"
@@ -2389,30 +2349,6 @@ function App() {
                     width: `${nodeWidth}px`,
                     height: `${nodeHeight}px`,
                   }}
-                  draggable={node.id !== rootId}
-                  onDragStart={(e) => handleNodeDragStart(e, node.id)}
-                  onDragOver={(e) => handleNodeDragOver(e, node.id)}
-                    onDragEnter={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      if (draggingNodeId.current && draggingNodeId.current !== node.id && node.id !== rootId) {
-                        dragOverNodeId.current = { id: node.id, mode: 'child' };
-                      }
-                    }}
-                    onDragLeave={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      // 只有当真正离开节点区域时才清除高亮
-                      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                      const x = e.clientX;
-                      const y = e.clientY;
-                      if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
-                        if (dragOverNodeId.current?.id === node.id) {
-                          dragOverNodeId.current = null;
-                        }
-                      }
-                    }}
-                  onDragEnd={handleNodeDragEnd}
                   onPointerDown={(e) => {
                     e.stopPropagation();
                     handleNodePointerDown(e, node.id);
@@ -2470,30 +2406,7 @@ function App() {
                       if (mindmapEditingId !== node.id) return;
                       updateTitle(node.id, e.target.value);
                     }}
-                      draggable={node.id !== rootId}
-                      onDragStart={(e) => {
-                        // 如果正在编辑文本，不触发拖动
-                        const textarea = e.target as HTMLTextAreaElement;
-                        if (document.activeElement === textarea && textarea.selectionStart !== textarea.selectionEnd) {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          return;
-                        }
-                        // 允许拖动事件冒泡，但确保调用 handleNodeDragStart
-                        if (node.id !== rootId) {
-                          handleNodeDragStart(e, node.id);
-                        }
-                      }}
-                      onDragOver={(e) => {
-                        // 阻止 textarea 的默认行为，让父节点的拖动处理生效
-                        e.preventDefault();
-                        e.stopPropagation();
-                      }}
-                      onDragEnd={(e) => {
-                        e.stopPropagation();
-                        handleNodeDragEnd(e);
-                      }}
-                      onMouseDown={(e) => {
+                    onMouseDown={(e) => {
                         e.stopPropagation();
                         const textarea = e.target as HTMLTextAreaElement;
                         const nodeId = node.id;
