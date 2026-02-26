@@ -424,7 +424,7 @@ function App() {
   const pointerDragStart = useRef<null | { x: number; y: number; nodeId: string }>(null);
   const pointerDragging = useRef(false);
   const suppressClickRef = useRef(false);
-  const positionsRef = useRef<Record<string, { x: number; y: number; width: number; height: number }>>({});
+  const positionsRef = useRef<PositionMap>({});
   const visibleNodesRef = useRef<MindNode[]>([]);
   const offsetRef = useRef({ x: 0, y: 0 });
   const scaleRef = useRef(1);
@@ -708,14 +708,46 @@ function App() {
             setSelected(currentNode.children[0]);
           }
         } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-          const parent = currentNode.parentId ? nodes[currentNode.parentId] : null;
-          if (parent) {
-            const siblings = parent.children;
-            const currentIndex = siblings.indexOf(targetId);
-            if (currentIndex !== -1) {
-              const nextIndex = e.key === 'ArrowUp' ? currentIndex - 1 : currentIndex + 1;
-              if (nextIndex >= 0 && nextIndex < siblings.length) {
-                setSelected(siblings[nextIndex]);
+          const layout = positionsRef.current;
+          const currentPos = layout[targetId];
+          if (!currentPos) return;
+
+          const currentDepth = currentPos.depth;
+
+          const sameLevelNodes = visibleNodesRef.current
+            .map(n => ({ id: n.id, ...layout[n.id] }))
+            .filter(p => p.depth === currentDepth)
+            .sort((a, b) => a.y === b.y ? a.x - b.x : a.y - b.y);
+
+          const currentIndex = sameLevelNodes.findIndex(p => p.id === targetId);
+          if (currentIndex === -1) return;
+
+          const nextIndex = e.key === 'ArrowDown' ? currentIndex + 1 : currentIndex - 1;
+
+          if (nextIndex >= 0 && nextIndex < sameLevelNodes.length) {
+            setSelected(sameLevelNodes[nextIndex].id);
+          } else {
+            // Fallback: if no more nodes on the same level, find the closest node on any other level
+            const allVisibleNodes = visibleNodesRef.current
+              .map(n => ({ id: n.id, ...layout[n.id] }))
+              .filter(p => p.depth !== undefined);
+
+            let candidates;
+            if (e.key === 'ArrowDown') {
+              candidates = allVisibleNodes.filter(p => p.y > currentPos.y);
+              if (candidates.length > 0) {
+                const minY = Math.min(...candidates.map(p => p.y));
+                const nextRowNodes = candidates.filter(p => p.y === minY);
+                const target = nextRowNodes.sort((a, b) => Math.abs(a.x - currentPos.x) - Math.abs(b.x - currentPos.x))[0];
+                if (target) setSelected(target.id);
+              }
+            } else { // ArrowUp
+              candidates = allVisibleNodes.filter(p => p.y < currentPos.y);
+              if (candidates.length > 0) {
+                const maxY = Math.max(...candidates.map(p => p.y));
+                const prevRowNodes = candidates.filter(p => p.y === maxY);
+                const target = prevRowNodes.sort((a, b) => Math.abs(a.x - currentPos.x) - Math.abs(b.x - currentPos.x))[0];
+                if (target) setSelected(target.id);
               }
             }
           }
