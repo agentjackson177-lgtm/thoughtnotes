@@ -493,6 +493,41 @@ function App() {
     }
   }, [selectedId]);
 
+  // Scroll into view when selectedId changes
+  useEffect(() => {
+    if (!selectedId || !canvasShellRef.current) return;
+
+    const nodePos = layout[selectedId];
+    const canvasRect = canvasShellRef.current.getBoundingClientRect();
+    if (!nodePos) return;
+
+    const margin = 100; // 100px margin from the edges
+
+    const nodeLeft = offset.x + nodePos.x * scale;
+    const nodeTop = offset.y + nodePos.y * scale;
+    const nodeRight = nodeLeft + nodePos.width * scale;
+    const nodeBottom = nodeTop + nodePos.height * scale;
+
+    let dx = 0;
+    let dy = 0;
+
+    if (nodeRight > canvasRect.width - margin) {
+      dx = canvasRect.width - margin - nodeRight;
+    } else if (nodeLeft < margin) {
+      dx = margin - nodeLeft;
+    }
+
+    if (nodeBottom > canvasRect.height - margin) {
+      dy = canvasRect.height - margin - nodeBottom;
+    } else if (nodeTop < margin) {
+      dy = margin - nodeTop;
+    }
+
+    if (dx !== 0 || dy !== 0) {
+      pan(dx, dy);
+    }
+  }, [selectedId, layout, offset, scale, pan]);
+
   const handleWheel = useCallback(
     (e: WheelEvent) => {
       e.preventDefault();
