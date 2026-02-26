@@ -494,8 +494,8 @@ function App() {
   }, [selectedId]);
 
   const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
     if (e.metaKey || e.ctrlKey) {
-      e.preventDefault();
       const next = Math.min(2, Math.max(0.3, scale - e.deltaY * 0.001));
       setScale(next);
     } else {
