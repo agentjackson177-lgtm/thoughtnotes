@@ -95,9 +95,14 @@ export const useMindMap = create<MindMapState & Actions & HistoryState>((set, ge
     }),
   setSelected: (id) => set({ selectedId: id }),
   updateTitle: (id, title) =>
-    set((state) => ({
-      nodes: { ...state.nodes, [id]: { ...state.nodes[id], title } },
-    })),
+    set((state) => {
+      const snapshot = cloneState(state);
+      return {
+        _past: [...state._past, snapshot].slice(-MAX_HISTORY),
+        _future: [],
+        nodes: { ...state.nodes, [id]: { ...state.nodes[id], title } },
+      };
+    }),
   addChild: (parentId) =>
     set((state) => {
       const snapshot = cloneState(state);
