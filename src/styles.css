@@ -1279,8 +1279,8 @@ button {
 /* ========== 思维导图深色主题 ========== */
 .canvas-shell.mindmap-dark {
   background:
-    radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.08) 1px, transparent 0) 0 0/16px 16px,
-    linear-gradient(135deg, #2c3e50 0%, #34495e 50%, #2c3e50 100%);
+    radial-gradient(circle at 1px 1px, #363b3d 1px, transparent 0) 0 0/5px 5px,
+    #3c4144; /* rgb(60, 65, 68) */
 }
 
 .canvas-shell.mindmap-dark .selection-box {
@@ -1306,19 +1306,27 @@ button {
 }
 
 .canvas-shell.mindmap-dark .node.depth-0 {
-  background: linear-gradient(135deg, #ffd93d 0%, #f9ca24 100%);
+  background: rgb(220, 213, 153);
   border-radius: 50px;
 }
 
 .canvas-shell.mindmap-dark .node.depth-1 {
-  background: linear-gradient(135deg, #a8e6cf 0%, #7dd3c0 100%);
+  background: rgb(171, 196, 192);
   border-radius: 32px;
 }
 
 .canvas-shell.mindmap-dark .node:not(.depth-0):not(.depth-1) {
   background: transparent;
-  border-radius: 0;
+  border-radius: 32px;
   box-shadow: none;
+}
+
+.canvas-shell.mindmap-dark .node-title {
+  color: #2c3e50; /* Default dark text for nodes with background */
+}
+
+.canvas-shell.mindmap-dark .node:not(.depth-0):not(.depth-1) .node-title {
+  color: #f0f0f0; /* Light text for nodes without background */
 }
 
 .canvas-shell.mindmap-dark .node:not(.depth-0):not(.depth-1).selected {
