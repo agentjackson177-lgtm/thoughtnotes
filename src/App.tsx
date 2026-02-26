@@ -2539,7 +2539,6 @@ function App() {
                         paddingRight: '20px',
                         fontSize: pos.depth >= 2 ? 22 : pos.depth === 1 ? 22 : pos.depth === 0 ? 36 : undefined,
                         fontWeight: pos.depth >= 2 ? 600 : pos.depth === 1 ? 700 : pos.depth === 0 ? 800 : undefined,
-                        color: pos.depth >= 2 ? 'rgba(255,255,255,.92)' : undefined,
                     }}
                   />
                 </div>

@@ -1317,16 +1317,38 @@ button {
 
 .canvas-shell.mindmap-dark .node:not(.depth-0):not(.depth-1) {
   background: transparent;
-  border-radius: 32px;
+  border-radius: 32px; /* Keep shape for selection transition */
   box-shadow: none;
 }
 
-.canvas-shell.mindmap-dark .node-title {
-  color: #2c3e50; /* Default dark text for nodes with background */
+/* Default text color for nodes with a background (L1 & L2) */
+.canvas-shell.mindmap-dark .node.depth-0 .node-title,
+.canvas-shell.mindmap-dark .node.depth-1 .node-title {
+  color: #2c3e50;
 }
 
+/* Default text color for nodes without a background (L3+) */
 .canvas-shell.mindmap-dark .node:not(.depth-0):not(.depth-1) .node-title {
-  color: #f0f0f0; /* Light text for nodes without background */
+  color: #ffffff;
+}
+
+/* --- UNIFIED SELECTION STYLES --- */
+
+/* On selection, set background for ALL nodes to green */
+.canvas-shell.mindmap-dark .node.selected {
+  background: rgb(249, 220, 74) !important; /* Use yellow for all selections */
+}
+
+/* On selection, FORCE text for L3+ nodes to dark */
+.canvas-shell.mindmap-dark .node.selected:not(.depth-0):not(.depth-1) .node-title {
+  color: #2c3e50 !important;
+}
+
+/* For L1/L2 selected nodes, the default dark color is fine, so no override is needed */
+
+/* Add back shadow for selected L3+ nodes */
+.canvas-shell.mindmap-dark .node.selected:not(.depth-0):not(.depth-1) {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 }
 
 .canvas-shell.mindmap-dark .node:not(.depth-0):not(.depth-1).selected {
