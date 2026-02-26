@@ -1,5 +1,5 @@
 import { XMLParser } from 'fast-xml-parser';
-import React, { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
+import React, { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import JSZip from 'jszip';
 import {
   DocumentMeta,
@@ -493,15 +493,29 @@ function App() {
     }
   }, [selectedId]);
 
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    if (e.metaKey || e.ctrlKey) {
-      const next = Math.min(2, Math.max(0.3, scale - e.deltaY * 0.001));
-      setScale(next);
-    } else {
-      pan(-e.deltaX, -e.deltaY);
-    }
-  };
+  const handleWheel = useCallback(
+    (e: WheelEvent) => {
+      e.preventDefault();
+      if (e.metaKey || e.ctrlKey) {
+        const next = Math.min(2, Math.max(0.3, scale - e.deltaY * 0.001));
+        setScale(next);
+      } else {
+        pan(-e.deltaX, -e.deltaY);
+      }
+    },
+    [pan, scale, setScale],
+  );
+
+  useEffect(() => {
+    const el = canvasShellRef.current;
+    if (!el) return;
+
+    el.addEventListener('wheel', handleWheel, { passive: false });
+
+    return () => {
+      el.removeEventListener('wheel', handleWheel);
+    };
+  }, [handleWheel]);
 
   const startPan = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
@@ -2184,7 +2198,6 @@ function App() {
         <div
           ref={canvasShellRef}
           className={`canvas-shell ${viewMode === 'mindmap' ? 'mindmap-dark' : ''}`}
-          onWheel={handleWheel}
           onPointerDown={startPan}
           onPointerMove={movePan}
           onPointerUp={endPan}
