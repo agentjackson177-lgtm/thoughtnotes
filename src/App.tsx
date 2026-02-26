@@ -33,10 +33,9 @@ const FLOWCHART_HORIZONTAL_GAP = 30;
 const FLOWCHART_VERTICAL_GAP = 50;
 
 const getNodeUiByDepth = (depth: number) => {
-  if (depth <= 0) return { fontSize: 36, height: 82, paddingX: 44 };
-  if (depth === 1) return { fontSize: 22, height: 56, paddingX: 32 };
-  // 三级及以后：更像“注释文本”，尺寸更小（且无背景色在 CSS 中处理）
-  return { fontSize: 21, height: 46, paddingX: 10 };
+  if (depth <= 0) return { fontSize: 36, height: 82, paddingX: 24 };
+  if (depth === 1) return { fontSize: 22, height: 56, paddingX: 24 };
+  return { fontSize: 21, height: 46, paddingX: 24 };
 };
 
 // 流程图布局算法（从上到下）
@@ -52,10 +51,10 @@ const computeFlowchartLayout = (nodes: Record<string, MindNode>, rootId: string)
     const dims = calculateNodeDimensions(node.title);
     const hasProgress = !!node.progress && node.progress !== 'none';
     const hasPriority = !!node.priority && node.priority >= 1 && node.priority <= 4;
-    const badgeReserve =
-      (hasProgress ? 18 : 0) +
-      (hasPriority ? (hasProgress ? 6 : 0) + 22 : 0);
-    const width = dims.width + (hasProgress || hasPriority ? badgeReserve : 0);
+    const badgeWidth = (hasProgress ? 18 : 0) + (hasPriority ? 20 : 0) + (hasProgress && hasPriority ? 6 : 0);
+    const paddingLeft = badgeWidth > 0 ? (10 + badgeWidth + 12) : 24;
+    const paddingRight = 24;
+    const width = dims.width + paddingLeft + paddingRight;
     const height = dims.height;
 
     const visibleChildren = node.collapsed ? [] : node.children;
@@ -173,10 +172,10 @@ const computeLayout = (nodes: Record<string, MindNode>, rootId: string) => {
     const hasProgress = !!node.progress && node.progress !== 'none';
     const hasPriority = !!node.priority && node.priority >= 1 && node.priority <= 4;
     // Reserve minimal space for left badges so text doesn't get clipped
-    const badgeReserve =
-      (hasProgress ? 18 : 0) + // 16px dot + small gap
-      (hasPriority ? (hasProgress ? 6 : 0) + 22 : 0); // pill + optional gap
-    const width = dims.width + (hasProgress || hasPriority ? badgeReserve : 0);
+    const badgeWidth = (hasProgress ? 18 : 0) + (hasPriority ? 20 : 0) + (hasProgress && hasPriority ? 6 : 0);
+    const paddingLeft = badgeWidth > 0 ? (10 + badgeWidth + 12) : 24;
+    const paddingRight = 24;
+    const width = dims.width + paddingLeft + paddingRight;
     const height = dims.height; // Fixed 40px
 
     // Calculate treeHeight
@@ -2395,7 +2394,8 @@ function App() {
             const hasChildren = node.children.length > 0;
               const hasProgress = !!node.progress && node.progress !== 'none';
               const hasPriority = !!node.priority && node.priority >= 1 && node.priority <= 4;
-              const leftPad = hasProgress && hasPriority ? 58 : hasProgress ? 42 : hasPriority ? 38 : 20;
+              const badgeWidth = (hasProgress ? 18 : 0) + (hasPriority ? 20 : 0) + (hasProgress && hasPriority ? 6 : 0);
+              const paddingLeft = badgeWidth > 0 ? (10 + badgeWidth + 12) : 24;
             
             return (
               <React.Fragment key={node.id}>
@@ -2628,14 +2628,12 @@ function App() {
                       }}
                     rows={1}
                     style={{
-                      width: '100%',
-                      height: '100%',
-                        textAlign: pos.depth >= 2 ? 'left' : hasProgress || hasPriority ? 'left' : 'center',
+                      paddingLeft: `${paddingLeft}px`,
+                      paddingRight: '24px',
+                      textAlign: pos.depth >= 2 ? 'left' : 'center',
                       lineHeight: `${nodeHeight}px`,
-                        paddingLeft: `${pos.depth >= 2 && !(hasProgress || hasPriority) ? 6 : leftPad}px`,
-                        paddingRight: '20px',
-                        fontSize: pos.depth >= 2 ? 22 : pos.depth === 1 ? 22 : pos.depth === 0 ? 36 : undefined,
-                        fontWeight: pos.depth >= 2 ? 600 : pos.depth === 1 ? 700 : pos.depth === 0 ? 800 : undefined,
+                      fontSize: pos.depth >= 2 ? 22 : pos.depth === 1 ? 22 : pos.depth === 0 ? 36 : undefined,
+                      fontWeight: pos.depth >= 2 ? 600 : pos.depth === 1 ? 700 : pos.depth === 0 ? 800 : undefined,
                     }}
                   />
                 </div>

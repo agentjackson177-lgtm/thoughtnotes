@@ -32,13 +32,13 @@ export const getTextWidth = (text: string, fontSize: number = FONT_SIZE): number
 
 export const calculateNodeDimensions = (
   text: string,
-  opts?: { fontSize?: number; paddingX?: number; height?: number },
+  opts?: { fontSize?: number; height?: number },
 ): { width: number; height: number } => {
   const fontSize = opts?.fontSize ?? FONT_SIZE;
-  const paddingX = opts?.paddingX ?? HORIZONTAL_PADDING;
+  const paddingX = HORIZONTAL_PADDING;
   const height = opts?.height ?? 40;
   const textWidth = getTextWidth(text, fontSize);
-  const width = textWidth + paddingX * 2;
+  const width = textWidth;
   return { width, height };
 };
 
