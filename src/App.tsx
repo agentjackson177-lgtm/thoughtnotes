@@ -682,7 +682,7 @@ function App() {
       if (isActuallyEditing) return;
 
       // 如果正在输入框中（但只读状态）：只处理 Ctrl/Cmd 快捷键、Tab 和 Enter 键
-      if (isInInput && !(e.metaKey || e.ctrlKey) && e.key !== 'Tab' && e.key !== 'Enter') {
+      if (isInInput && !(e.metaKey || e.ctrlKey) && e.key !== 'Tab' && e.key !== 'Enter' && !e.key.startsWith('Arrow')) {
         return;
       }
       
@@ -692,6 +692,36 @@ function App() {
         : selectedId;
       
       if (!targetId) return;
+
+      // Arrow key navigation
+      if (e.key.startsWith('Arrow')) {
+        e.preventDefault();
+        const currentNode = nodes[targetId];
+        if (!currentNode) return;
+
+        if (e.key === 'ArrowLeft') {
+          if (currentNode.parentId) {
+            setSelected(currentNode.parentId);
+          }
+        } else if (e.key === 'ArrowRight') {
+          if (currentNode.children.length > 0 && !currentNode.collapsed) {
+            setSelected(currentNode.children[0]);
+          }
+        } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+          const parent = currentNode.parentId ? nodes[currentNode.parentId] : null;
+          if (parent) {
+            const siblings = parent.children;
+            const currentIndex = siblings.indexOf(targetId);
+            if (currentIndex !== -1) {
+              const nextIndex = e.key === 'ArrowUp' ? currentIndex - 1 : currentIndex + 1;
+              if (nextIndex >= 0 && nextIndex < siblings.length) {
+                setSelected(siblings[nextIndex]);
+              }
+            }
+          }
+        }
+        return;
+      }
       
       if ((e.metaKey || e.ctrlKey) && e.key === 'c') {
         e.preventDefault();

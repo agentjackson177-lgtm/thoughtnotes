@@ -80,7 +80,7 @@ button {
   top: 0;
   z-index: 100;
   backdrop-filter: blur(10px);
-  min-height: 40px; /* 设置最小高度防止跳动 */
+  min-height: 36px; /* 设置最小高度防止跳动 */
 }
 
 .toolbar .title {
