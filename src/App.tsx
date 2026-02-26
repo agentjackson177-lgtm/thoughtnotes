@@ -1,4 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { XMLParser } from 'fast-xml-parser';
+import React, { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
+import JSZip from 'jszip';
 import {
   DocumentMeta,
   FlowchartMeta,
@@ -437,6 +439,8 @@ function App() {
   const mindmapArmedEditClickRef = useRef<Record<string, boolean>>({});
   const mindmapPendingNewNodeEditRef = useRef(false);
   const mindmapSuppressBlurClearRef = useRef(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const importFolderIdRef = useRef<string | null>(null);
   const [mindmapEditingId, setMindmapEditingId] = useState<string | null>(null);
   const saveCloudTimerRef = useRef<number | null>(null);
 
@@ -935,7 +939,87 @@ function App() {
 
   const closeContextMenu = () => setContextMenu(null);
 
-  // handleImport 已移除
+  const handleImportXMind = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const zip = await JSZip.loadAsync(file);
+      const jsonFile = zip.file('content.json') || zip.file('/content.json');
+      const xmlFile = zip.file('content.xml') || zip.file('/content.xml');
+
+      if (!jsonFile && !xmlFile) {
+        alert('无效的 XMind 文件：找不到 content.json 或 content.xml');
+        return;
+      }
+
+      let rootTopic: any;
+
+      if (jsonFile) {
+        const content = await jsonFile.async('string');
+        const xmindData = JSON.parse(content);
+        const sheet = xmindData[0];
+        if (!sheet || !sheet.rootTopic) {
+          alert('无效的 XMind 文件：找不到根主题');
+          return;
+        }
+        rootTopic = sheet.rootTopic;
+      } else if (xmlFile) {
+        const content = await xmlFile.async('string');
+        const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
+        const xmlData = parser.parse(content);
+        const sheet = xmlData['xmap-content'].sheet;
+        rootTopic = sheet.topic;
+      }
+
+      const newNodes: Record<string, MindNode> = {};
+
+      const convertTopic = (topic: any, parentId: string | null = null): string => {
+        const id = crypto.randomUUID(); // Always generate a new UUID to handle duplicate IDs in old files
+        const title = topic.title || '无标题';
+        
+        let children: string[] = [];
+        if (topic.children && topic.children.topics && topic.children.topics.topic) { // XML format
+          const topics = Array.isArray(topic.children.topics.topic) ? topic.children.topics.topic : [topic.children.topics.topic];
+          children = topics.map((child: any) => convertTopic(child, id));
+        } else if (topic.children && topic.children.attached) { // JSON format
+          children = topic.children.attached.map((child: any) => convertTopic(child, id));
+        }
+
+        newNodes[id] = {
+          id,
+          title,
+          children,
+          parentId,
+          collapsed: topic['@_branch'] === 'folded',
+          progress: 'none',
+          priority: null,
+        };
+        return id;
+      };
+
+      const newRootId = convertTopic(rootTopic);
+      const folderId = importFolderIdRef.current;
+      const newMapId = crypto.randomUUID();
+      const newMapName = file.name.replace(/\.xmind$/i, '');
+      const newMapState = { nodes: newNodes, rootId: newRootId, selectedId: newRootId, scale: 1, offset: { x: 0, y: 0 } };
+
+      setMaps(prev => [...prev, { id: newMapId, name: newMapName, folderId, updatedAt: Date.now() }]);
+      setMapStates(prev => ({ ...prev, [newMapId]: newMapState }));
+      setCurrentMapId(newMapId);
+      setViewMode('mindmap');
+      importData(newMapState);
+
+      alert(`导入成功，已为您创建新导图：${newMapName}`);
+    } catch (err) {
+      console.error('导入 XMind 文件失败:', err);
+      alert('导入 XMind 文件失败，请检查文件格式或查看控制台。');
+    }
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
 
   // 加载用户数据（云端：从服务端拉取；未完成加载前不允许保存，避免覆盖）
   useEffect(() => {
@@ -1845,6 +1929,12 @@ function App() {
                   <button className="link-btn" onClick={() => handleCreateFlowchart(null)}>
                     新建流程图
                   </button>
+                  <button className="link-btn" onClick={() => {
+                    importFolderIdRef.current = null;
+                    fileInputRef.current?.click();
+                  }}>
+                    导入 XMind
+                  </button>
                 </div>
               )}
             </div>
@@ -1946,6 +2036,12 @@ function App() {
                     </button>
                     <button className="link-btn" onClick={() => handleCreateFlowchart(folder.id)}>
                       新建流程图
+                    </button>
+                    <button className="link-btn" onClick={() => {
+                      importFolderIdRef.current = folder.id;
+                      fileInputRef.current?.click();
+                    }}>
+                      导入 XMind
                     </button>
                   </div>
                 )}
@@ -2697,6 +2793,13 @@ function App() {
           hasClipboard={!!(window as any).__mindmapClipboard}
         />
       )}
+      <input
+        type="file"
+        accept=".xmind,application/vnd.xmind.workbook"
+        ref={fileInputRef}
+        style={{ display: 'none' }}
+        onChange={handleImportXMind}
+      />
     </div>
   );
 }
