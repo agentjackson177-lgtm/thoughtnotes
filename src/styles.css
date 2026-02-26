@@ -69,9 +69,9 @@ button {
 /* ========== 工具栏 ========== */
 .toolbar {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
-  padding: 8px 16px;
+  padding: 4px 12px;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   box-shadow: var(--shadow-md);
   position: sticky;
@@ -82,8 +82,8 @@ button {
 
 .toolbar .title {
   font-weight: 600;
-  font-size: 16px;
-  margin-right: 12px;
+  font-size: 15px;
+  margin-right: 10px;
   color: #ffffff;
   letter-spacing: 0.5px;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
@@ -467,13 +467,13 @@ button {
 
 /* ========== 按钮 ========== */
 .button {
-  padding: 6px 12px;
-  border-radius: var(--radius-md);
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
   border: 1px solid rgba(255, 255, 255, 0.2);
   background: rgba(255, 255, 255, 0.15);
   color: rgba(255, 255, 255, 0.95);
   font-weight: 500;
-  font-size: 13px;
+  font-size: 12px;
   cursor: pointer;
   transition: all var(--transition-base);
   backdrop-filter: blur(10px);
@@ -1168,14 +1168,14 @@ button {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 10px;
+  padding: 2px 8px;
   background: rgba(255, 255, 255, 0.15);
   border-radius: var(--radius-lg);
   backdrop-filter: blur(10px);
 }
 
 .username {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.95);
 }

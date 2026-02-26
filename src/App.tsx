@@ -1750,7 +1750,6 @@ function App() {
           ☰
         </button>
         <div className="title">轻量思维导图</div>
-        <span className="badge">MVP</span>
         <div style={{ flex: 1 }} />
         <div className="user-info">
           <span className="username">{currentUser.username}</span>
@@ -1758,62 +1757,11 @@ function App() {
             退出登录
           </button>
         </div>
-        {viewMode === 'flowchart' ? (
-          <>
-            <button className="button" onClick={() => selectedId && addSibling(selectedId)}>
-              同级 (Tab)
-            </button>
-            <button className="button" onClick={() => selectedId && addChild(selectedId)}>
-              合并子节点 (Enter)
-            </button>
-            <button
-              className="button"
-              onClick={() => {
-                if (!selectedId) return;
-                // 先用现有逻辑创建子节点
-                addChild(selectedId);
-                // addChild 会把 selectedId 指向新节点；用 store 的 getState() 读取最新 id
-                const newId = useMindMap.getState().selectedId;
-                if (newId) setFlowchartChildType(newId, 'single');
-              }}
-            >
-              单独子节点
-            </button>
-          </>
-        ) : (
-          <>
-        <button className="button" onClick={() => selectedId && addChild(selectedId)}>
-          子节点 (Tab)
-        </button>
-        <button className="button" onClick={() => selectedId && addSibling(selectedId)}>
-          同级 (Enter)
-        </button>
-          </>
-        )}
-        <button
-          className="button"
-          onClick={() => {
-            if (selectedIds.size > 0) {
-              const idsToDelete = Array.from(selectedIds).filter(id => id !== rootId);
-              idsToDelete.forEach(id => removeNode(id));
-              setSelectedIds(new Set());
-              setSelected(null);
-            } else if (selectedId && selectedId !== rootId) {
-              removeNode(selectedId);
-            }
-          }}
-          disabled={(selectedIds.size === 0 && (!selectedId || selectedId === rootId)) || (selectedIds.size > 0 && selectedIds.size === 1 && selectedIds.has(rootId))}
-        >
-          删除 (Del)
-        </button>
         <button className="button" onClick={() => setScale(Math.min(2, scale + 0.1))}>
           放大
         </button>
         <button className="button" onClick={() => setScale(Math.max(0.3, scale - 0.1))}>
           缩小
-        </button>
-        <button className="button" onClick={reset}>
-          复位
         </button>
         {/* 导入/导出 JSON 按钮已移除（账号系统下自动保存） */}
         {selectedId && (
