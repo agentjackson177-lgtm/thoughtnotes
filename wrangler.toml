@@ -1,4 +1,4 @@
-name = "mindmap-api"
+name = "thoughtnotes"
 main = "worker/src/index.js"
 compatibility_date = "2026-01-29"
 compatibility_flags = ["nodejs_compat"]
