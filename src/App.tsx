@@ -54,7 +54,7 @@ const computeFlowchartLayout = (nodes: Record<string, MindNode>, rootId: string)
     const badgeWidth = (hasProgress ? 18 : 0) + (hasPriority ? 20 : 0) + (hasProgress && hasPriority ? 6 : 0);
     const paddingLeft = badgeWidth > 0 ? (10 + badgeWidth + 12) : 24;
     const paddingRight = 24;
-    const width = dims.width + paddingLeft + paddingRight;
+    const width = dims.width + (badgeWidth > 0 ? badgeWidth + 12 : 0);
     const height = dims.height;
 
     const visibleChildren = node.collapsed ? [] : node.children;
@@ -2632,8 +2632,22 @@ function App() {
                       paddingRight: '24px',
                       textAlign: pos.depth >= 2 ? 'left' : 'center',
                       lineHeight: `${nodeHeight}px`,
-                      fontSize: pos.depth >= 2 ? 22 : pos.depth === 1 ? 22 : pos.depth === 0 ? 36 : undefined,
-                      fontWeight: pos.depth >= 2 ? 600 : pos.depth === 1 ? 700 : pos.depth === 0 ? 800 : undefined,
+                      fontSize:
+                        pos.depth >= 2
+                          ? 22
+                          : pos.depth === 1
+                          ? 22
+                          : pos.depth === 0
+                          ? 36
+                          : undefined,
+                      fontWeight:
+                        pos.depth >= 2
+                          ? 600
+                          : pos.depth === 1
+                          ? 700
+                          : pos.depth === 0
+                          ? 800
+                          : undefined,
                     }}
                   />
                 </div>
